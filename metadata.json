@@ -1,0 +1,6 @@
+{
+  "name": "Creator4 Lab Self-Service Kiosk",
+  "description": "QR-based mobile document printing workflow for Creator4 Lab self-service kiosks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
