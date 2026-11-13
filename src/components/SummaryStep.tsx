@@ -6,9 +6,11 @@ import {
   Printer,
   RotateCcw,
   FileText,
+  Wallet,
 } from 'lucide-react';
 import { MultiDocPrintSummary, WorkflowStep } from '../types/kiosk';
 import { formatCurrency, formatInrCurrency } from '../utils/kioskLogic';
+import { useKioskWallet } from '../utils/kioskWallet';
 
 interface SummaryStepProps {
   step: Extract<WorkflowStep, 'summary' | 'payment'>;
@@ -29,7 +31,8 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
   onProceedToPayment,
   onStartNewSession,
 }) => {
-  const [paymentMethod, setPaymentMethod] = useState<'apple_google' | 'card'>('apple_google');
+  const { balance: walletBalance, deductFunds } = useKioskWallet();
+  const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'apple_google' | 'card'>('wallet');
   const [isPrintingJob, setIsPrintingJob] = useState<boolean>(false);
   const [printDispatched, setPrintDispatched] = useState<boolean>(false);
 
@@ -38,9 +41,14 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
       ? formatInrCurrency(estimatedTotalInr)
       : formatCurrency(summary.totalPrice);
 
+  const totalDueAmount = typeof estimatedTotalInr === 'number' ? estimatedTotalInr : summary.totalPrice;
+
   const handleConfirmPayAndPrint = () => {
     setIsPrintingJob(true);
     setTimeout(() => {
+      if (paymentMethod === 'wallet') {
+        deductFunds(totalDueAmount, `Print Job (${summary.documentCount} docs, ${summary.totalEstimatedSheets} sheets)`);
+      }
       setIsPrintingJob(false);
       setPrintDispatched(true);
     }, 600);
@@ -120,6 +128,42 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
           </div>
 
           <div className="flex flex-col gap-2.5">
+            {/* 1. Kiosk Wallet Option */}
+            <button
+              type="button"
+              onClick={() => setPaymentMethod('wallet')}
+              className={`w-full min-h-[52px] px-3.5 py-2.5 rounded-xl border flex items-center justify-between text-left transition-all ${
+                paymentMethod === 'wallet'
+                  ? 'bg-[#F3F6F3] border-2 border-[#1B4D2E]'
+                  : 'bg-white border-outline-variant/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
+                  <Wallet className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-bold text-on-surface block">
+                      Kiosk Wallet
+                    </span>
+                    <span className="text-[11px] font-bold text-[#1B4D2E] bg-emerald-100/70 px-1.5 py-0.5 rounded-md">
+                      Balance: ₹{walletBalance.toFixed(2)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant">
+                    {walletBalance >= totalDueAmount
+                      ? 'Instant 1-tap payment from wallet'
+                      : 'Insufficient balance · Use UPI or Add Money'}
+                  </span>
+                </div>
+              </div>
+              {paymentMethod === 'wallet' && (
+                <span className="text-[12px] font-bold text-[#1B4D2E]">Selected</span>
+              )}
+            </button>
+
+            {/* 2. Mobile Express Pay */}
             <button
               type="button"
               onClick={() => setPaymentMethod('apple_google')}
@@ -140,9 +184,12 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
                   </span>
                 </div>
               </div>
-              <span className="text-[12px] font-bold text-[#1B4D2E]">Selected</span>
+              {paymentMethod === 'apple_google' && (
+                <span className="text-[12px] font-bold text-[#1B4D2E]">Selected</span>
+              )}
             </button>
 
+            {/* 3. Card */}
             <button
               type="button"
               onClick={() => setPaymentMethod('card')}
@@ -163,6 +210,9 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
                   </span>
                 </div>
               </div>
+              {paymentMethod === 'card' && (
+                <span className="text-[12px] font-bold text-[#1B4D2E]">Selected</span>
+              )}
             </button>
           </div>
         </section>
@@ -170,7 +220,7 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
         <div className="flex flex-col gap-2.5 mt-auto pt-4">
           <button
             type="button"
-            disabled={isPrintingJob}
+            disabled={isPrintingJob || (paymentMethod === 'wallet' && walletBalance < totalDueAmount)}
             onClick={handleConfirmPayAndPrint}
             className="w-full min-h-[50px] rounded-xl bg-[#1B4D2E] hover:bg-primary disabled:opacity-50 text-white font-semibold text-[15px] flex items-center justify-center gap-2 shadow-xs transition-all active:scale-[0.99]"
           >
@@ -178,6 +228,8 @@ export const SummaryStep: React.FC<SummaryStepProps> = ({
             <span>
               {isPrintingJob
                 ? 'Sending to Kiosk...'
+                : paymentMethod === 'wallet'
+                ? `Pay ${formattedPaymentTotal} from Wallet & Print`
                 : `Pay ${formattedPaymentTotal} & Print`}
             </span>
           </button>

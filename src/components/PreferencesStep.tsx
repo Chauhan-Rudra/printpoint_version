@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   FileText,
   Layers,
+  Scissors,
 } from 'lucide-react';
 import {
   BlankPageItem,
@@ -25,6 +26,7 @@ import { LiveDocumentViewer } from './LiveDocumentViewer';
 import { BlankPageDetectionSection } from './BlankPageDetectionSection';
 import { ReviewBlankPagesModal } from './ReviewBlankPagesModal';
 import { ConfirmRemovalModal } from './ConfirmRemovalModal';
+import { FullScreenPdfEditor } from './tools/FullScreenPdfEditor';
 
 interface PreferencesStepProps {
   documents: UploadedPrintDocument[];
@@ -39,8 +41,10 @@ interface PreferencesStepProps {
   ) => void;
   onRemoveBlankPages?: (docPagesMap: Record<string, number[]>) => Promise<void>;
   onRestoreOriginalPages?: () => void;
+  onReplaceDocument?: (docId: string, newFile: File) => void;
   onBack: () => void;
   onContinueToPayment: () => void;
+  isMobileView?: boolean;
 }
 
 export const PreferencesStep: React.FC<PreferencesStepProps> = ({
@@ -52,8 +56,10 @@ export const PreferencesStep: React.FC<PreferencesStepProps> = ({
   onUpdateBlankPages,
   onRemoveBlankPages,
   onRestoreOriginalPages,
+  onReplaceDocument,
   onBack,
   onContinueToPayment,
+  isMobileView,
 }) => {
   const readyDocs = documents
     .filter((d) => d.status === 'Ready')
@@ -66,10 +72,13 @@ export const PreferencesStep: React.FC<PreferencesStepProps> = ({
       ? selectedDocId
       : activeDocs[0]?.id ?? '';
 
+  const activeDoc = activeDocs.find((d) => d.id === activeDocId) || activeDocs[0];
+
   // State for Review & Confirmation Modals
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [isRemovingPages, setIsRemovingPages] = useState<boolean>(false);
+  const [isPdfEditorOpen, setIsPdfEditorOpen] = useState<boolean>(false);
 
   // Viewer navigation targets from Review flow
   const [viewerTargetPage, setViewerTargetPage] = useState<number | null>(null);
@@ -250,6 +259,20 @@ export const PreferencesStep: React.FC<PreferencesStepProps> = ({
           <ArrowLeft className="w-3.5 h-3.5 text-[#1B4D2E]" />
           <span>Back</span>
         </button>
+
+        {activeDoc && activeDoc.name.toLowerCase().endsWith('.pdf') && (
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('selection');
+              setIsPdfEditorOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-[#EDF5F0] border border-[#1B4D2E]/25 text-[12px] font-bold text-[#1B4D2E] shadow-2xs hover:bg-[#E2EFE7] active:scale-95 transition-all"
+          >
+            <Scissors className="w-3.5 h-3.5 stroke-[2.2]" />
+            <span>Edit Document</span>
+          </button>
+        )}
       </div>
 
       {/* 1. Screen Heading & Supporting Text */}
@@ -277,6 +300,7 @@ export const PreferencesStep: React.FC<PreferencesStepProps> = ({
             removeBlankPages={globalSettings.removeBlankPages ?? true}
             targetPage={viewerTargetPage}
             highlightedPage={viewerHighlightedPage}
+            isMobileView={isMobileView}
             onUpdateBlankPages={onUpdateBlankPages}
           />
         </div>
@@ -718,6 +742,21 @@ export const PreferencesStep: React.FC<PreferencesStepProps> = ({
         onCancel={() => setIsConfirmModalOpen(false)}
         onConfirm={handleExecuteRemoval}
       />
+
+      {/* Full-Screen PDF Editor */}
+      {isPdfEditorOpen && activeDoc && (activeDoc.rawFile || activeDoc.originalFile) && (
+        <FullScreenPdfEditor
+          isOpen={isPdfEditorOpen}
+          file={activeDoc.rawFile || activeDoc.originalFile}
+          onClose={() => setIsPdfEditorOpen(false)}
+          onSaveAndPrint={(editedFile) => {
+            setIsPdfEditorOpen(false);
+            if (onReplaceDocument) {
+              onReplaceDocument(activeDoc.id, editedFile);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -1,6 +1,8 @@
 export type WorkflowStep =
   | 'home'         // Screen 1: Ready to print? + Add your documents
   | 'file-browser' // Screen 1B: Realistic Mobile Document Selection & File Manager
+  | 'tools'        // Screen 1C: Dedicated Mobile Tools Dashboard
+  | 'editor'       // Screen 1D: Dedicated Mobile PDF Editor (auto-opened after upload)
   | 'loading'      // Screen 2: Preparing your documents (real-time upload & processing)
   | 'documents'    // Screen 3: Uploaded documents list
   | 'preferences'  // Screen 4: Customize your print

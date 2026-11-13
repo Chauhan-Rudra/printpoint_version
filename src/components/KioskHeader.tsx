@@ -1,35 +1,31 @@
 import React, { useState } from 'react';
-import { ChevronDown, HelpCircle, CheckCircle2, MapPin, Printer, ShieldCheck, X } from 'lucide-react';
+import {
+  ChevronDown,
+  HelpCircle,
+  CheckCircle2,
+  MapPin,
+  Printer,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 
-const LOGO_URL =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuDPBmVl_VAn-FMkd_17-eY97G-JRYMQh9IbZR5MBV2DAFRmQFjhGYZ7qRPceOqqUX80gB6LHD-b8rXmDxiJ52VOlZ15YrdHKqGST55To1RTWyRUl9QR50yVZJ_ddIGKGtkrZPnW7rjlI0nVPmMisiGlI4bohkn5sfCMRaxO04uo9kC135tyJz981gdqlsracFXNT0lBXpi0wYHJwcgNvb90DBZSP_La8qiPT_xpzBIu6CeMgKxsoqS3PQ';
+import { Creator4Logo } from './Creator4Logo';
 
 export const KioskHeader: React.FC = () => {
-  const [imgError, setImgError] = useState(false);
   const [showKioskInfo, setShowKioskInfo] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   return (
     <>
-      <header className="sticky top-0 w-full z-40 pt-safe bg-white border-b border-outline-variant/35">
-        <div className="h-14 px-4 flex items-center justify-between max-w-md mx-auto w-full relative">
+      <header className="sticky top-0 w-full z-40 pt-safe bg-white border-b border-outline-variant/35 shadow-2xs">
+        <div className="h-14 px-4 flex items-center justify-between mx-auto w-full max-w-md relative">
           {/* Left: Creator4 Lab Logo + Kiosk Identification with Dropdown Indicator */}
           <div className="flex items-center gap-2.5 min-w-0">
-            {!imgError ? (
-              <img
-                alt="Creator4 Lab"
-                className="h-9 w-9 rounded-xl object-cover shrink-0 shadow-2xs border border-emerald-950/10"
-                src={LOGO_URL}
-                referrerPolicy="no-referrer"
-                onError={() => setImgError(true)}
-              />
-            ) : (
-              <div className="h-9 w-9 rounded-xl bg-[#1B4D2E] text-white flex flex-col items-center justify-center shrink-0 shadow-2xs leading-none p-0.5">
-                <span className="text-[6px] uppercase tracking-tighter opacity-80">the</span>
-                <span className="text-[7px] font-bold tracking-tight">Creato4</span>
-                <span className="text-[6px] font-semibold opacity-90">Lab</span>
-              </div>
-            )}
+            <Creator4Logo
+              size="sm"
+              interactive
+              onClick={() => setShowKioskInfo((prev) => !prev)}
+            />
 
             <button
               type="button"
@@ -43,7 +39,7 @@ export const KioskHeader: React.FC = () => {
             >
               <div className="flex items-center gap-1">
                 <span className="text-[14px] font-bold text-on-surface tracking-tight truncate">
-                  Kiosk @ Creator4 Lab
+                  Print Point
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-on-surface-variant shrink-0 transition-transform duration-200 ${
@@ -59,19 +55,22 @@ export const KioskHeader: React.FC = () => {
           </div>
 
           {/* Right: Help Option */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowHelpModal((prev) => !prev);
-              setShowKioskInfo(false);
-            }}
-            aria-expanded={showHelpModal}
-            aria-label="Help"
-            className="h-9 px-2.5 rounded-xl text-on-surface hover:bg-surface-container-low active:scale-95 transition-all duration-150 flex items-center gap-1.5 shrink-0"
-          >
-            <HelpCircle className="w-4 h-4 text-on-surface-variant" aria-hidden="true" />
-            <span className="text-[13px] font-semibold text-on-surface">Help</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowHelpModal((prev) => !prev);
+                setShowKioskInfo(false);
+              }}
+              aria-expanded={showHelpModal}
+              aria-label="Help"
+              className="h-9 px-2.5 rounded-xl text-on-surface hover:bg-surface-container-low active:scale-95 transition-all duration-150 flex items-center gap-1.5 shrink-0"
+            >
+              <HelpCircle className="w-4 h-4 text-on-surface-variant" aria-hidden="true" />
+              <span className="text-[13px] font-semibold text-on-surface">Help</span>
+            </button>
+          </div>
 
           {/* Kiosk Information Dropdown Popover */}
           {showKioskInfo && (

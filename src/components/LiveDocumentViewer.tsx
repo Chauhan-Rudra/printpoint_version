@@ -34,6 +34,7 @@ interface LiveDocumentViewerProps {
   removeBlankPages?: boolean;
   targetPage?: number | null;
   highlightedPage?: number | null;
+  isMobileView?: boolean;
   onUpdateBlankPages?: (
     docId: string,
     blankPages: number[],
@@ -53,6 +54,7 @@ interface PdfPageCanvasProps {
   isBlankPage?: boolean;
   removeBlankPages?: boolean;
   isHighlighted?: boolean;
+  customBaseWidth?: number;
 }
 
 const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
@@ -65,6 +67,7 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   isBlankPage = false,
   removeBlankPages = true,
   isHighlighted = false,
+  customBaseWidth,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
@@ -91,8 +94,8 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         if (!canvas) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
-        // Target base width for single A4 vs duplex compact
-        const baseWidth = isDuplexCompact ? 144 : 220;
+        // Target base width for single A4 vs duplex compact (or custom width for mobile)
+        const baseWidth = customBaseWidth ?? (isDuplexCompact ? 144 : 220);
         const computedScale = (baseWidth / baseViewport.width) * scaleFactor;
         const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
@@ -135,19 +138,22 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         }
       }
     };
-  }, [pdfDoc, pageNumber, scaleFactor, isDuplexCompact]);
+  }, [pdfDoc, pageNumber, scaleFactor, isDuplexCompact, customBaseWidth]);
+
+  const baseWidth = customBaseWidth ?? (isDuplexCompact ? 144 : 220);
 
   return (
     <div
       data-testid={`pdf-page-sheet-${pageNumber}`}
       data-colour-preview={isBw ? 'bw' : 'colour'}
+      style={{
+        width: `${Math.round(baseWidth * scaleFactor)}px`,
+      }}
       className={`relative bg-white rounded-lg border overflow-hidden flex flex-col items-center justify-center transition-all duration-200 select-none ${
         isHighlighted
           ? 'ring-2 ring-[#1B4D2E] shadow-[0_0_20px_rgba(27,77,46,0.35)] border-[#1B4D2E]'
           : 'border-black/[0.08] shadow-[0_8px_24px_rgba(25,28,26,0.09)]'
-      } ${isBw ? 'grayscale contrast-[1.06]' : 'grayscale-0'} ${
-        isDuplexCompact ? 'w-[144px]' : 'w-[220px]'
-      }`}
+      } ${isBw ? 'grayscale contrast-[1.06]' : 'grayscale-0'}`}
     >
       {/* Review Highlight Badge */}
       {isHighlighted && (
@@ -221,6 +227,7 @@ export const LiveDocumentViewer: React.FC<LiveDocumentViewerProps> = ({
   removeBlankPages = true,
   targetPage,
   highlightedPage,
+  isMobileView,
   onUpdateBlankPages,
 }) => {
   const activeDoc =
@@ -232,6 +239,14 @@ export const LiveDocumentViewer: React.FC<LiveDocumentViewerProps> = ({
   const [pdfNumPages, setPdfNumPages] = useState<number>(1);
   const [isLoadingPdf, setIsLoadingPdf] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [mobileDuplexSide, setMobileDuplexSide] = useState<'front' | 'back'>('front');
+
+  const isMobile =
+    isMobileView ?? (typeof window !== 'undefined' && window.innerWidth < 768);
+  const mobileBaseWidth =
+    typeof window !== 'undefined'
+      ? Math.min(Math.max(window.innerWidth - 64, 280), 360)
+      : 320;
 
   // Navigate to targetPage if specified from Review Pages
   useEffect(() => {
@@ -609,11 +624,87 @@ export const LiveDocumentViewer: React.FC<LiveDocumentViewerProps> = ({
                   pageNumber={frontPageNum}
                   scaleFactor={1}
                   isBw={isBw}
+                  customBaseWidth={isMobile ? mobileBaseWidth : 220}
                   isBlankPage={activeDoc.blankPages?.includes(frontPageNum)}
                   removeBlankPages={removeBlankPages}
                   isHighlighted={highlightedPage === frontPageNum}
                 />
+              ) : isMobile ? (
+                /* Dedicated Mobile Duplex Viewer: Full-Width with Front/Back Switcher */
+                <div
+                  data-testid="duplex-spread-view"
+                  className="flex flex-col items-center gap-2.5 w-full"
+                >
+                  <div className="flex items-center gap-1 p-1 bg-white rounded-xl border border-black/[0.08] shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setMobileDuplexSide('front')}
+                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        mobileDuplexSide === 'front'
+                          ? 'bg-[#1B4D2E] text-white shadow-2xs'
+                          : 'text-[#545D56] hover:text-[#191C1A]'
+                      }`}
+                    >
+                      Front (p.{frontPageNum})
+                    </button>
+                    {backPageNum && (
+                      <button
+                        type="button"
+                        onClick={() => setMobileDuplexSide('back')}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                          mobileDuplexSide === 'back'
+                            ? 'bg-[#1B4D2E] text-white shadow-2xs'
+                            : 'text-[#545D56] hover:text-[#191C1A]'
+                        }`}
+                      >
+                        Back (p.{backPageNum})
+                      </button>
+                    )}
+                  </div>
+
+                  {mobileDuplexSide === 'front' ? (
+                    <PdfPageCanvas
+                      pdfDoc={pdfDoc}
+                      pageNumber={frontPageNum}
+                      scaleFactor={1}
+                      isBw={isBw}
+                      customBaseWidth={mobileBaseWidth}
+                      sideBadgeLabel="Front"
+                      isBlankPage={activeDoc.blankPages?.includes(frontPageNum)}
+                      removeBlankPages={removeBlankPages}
+                      isHighlighted={highlightedPage === frontPageNum}
+                    />
+                  ) : backPageNum ? (
+                    <PdfPageCanvas
+                      pdfDoc={pdfDoc}
+                      pageNumber={backPageNum}
+                      scaleFactor={1}
+                      isBw={isBw}
+                      customBaseWidth={mobileBaseWidth}
+                      sideBadgeLabel="Back"
+                      isBlankPage={activeDoc.blankPages?.includes(backPageNum)}
+                      removeBlankPages={removeBlankPages}
+                      isHighlighted={highlightedPage === backPageNum}
+                    />
+                  ) : (
+                    <div
+                      style={{ width: `${mobileBaseWidth}px` }}
+                      className="aspect-[1/1.414] rounded-lg bg-white/70 border border-dashed border-[#B7C4BB] flex flex-col items-center justify-center p-4 text-center select-none shadow-2xs"
+                    >
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#EAF3EC] text-[#1B4D2E] mb-1">
+                        Back Side
+                      </span>
+                      <span className="text-[12px] font-medium text-[#646D66]">
+                        Blank Back Page
+                      </span>
+                      <span className="text-[10px] text-[#8C988F] mt-1">
+                        (Odd page sheet)
+                      </span>
+                    </div>
+                  )}
+                </div>
               ) : (
+                /* Physical Kiosk Spread View: Side-by-Side Touch Preview */
                 <div
                   data-testid="duplex-spread-view"
                   className="flex items-center justify-center gap-2.5"

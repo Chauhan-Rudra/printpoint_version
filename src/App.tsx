@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { KioskHeader } from './components/KioskHeader';
 import { UploadHomeStep } from './components/UploadHomeStep';
 import { FileBrowserStep } from './components/FileBrowserStep';
 import { FloatingUploadSheet } from './components/FloatingUploadSheet';
 import { PreferencesStep } from './components/PreferencesStep';
 import { SummaryStep } from './components/SummaryStep';
+import { MobilePdfEditor } from './components/MobilePdfEditor';
 import {
   PrintDocumentSettings,
   UploadedPrintDocument,
@@ -41,6 +42,15 @@ export default function App() {
   const [globalSettings, setGlobalSettings] =
     useState<PrintDocumentSettings>(DEFAULT_SETTINGS);
   const [previewBeforePrint, setPreviewBeforePrint] = useState<boolean>(true);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('creator4_device_mode');
+      localStorage.removeItem('c4_device_mode');
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
 
   const nextOrderIndexRef = useRef<number>(0);
   const uploadSessionIdRef = useRef<number>(0);
@@ -291,13 +301,27 @@ export default function App() {
     setDocuments((prev) => [...prev, ...newDocs]);
     setIsUploadSheetOpen(true);
 
+    let allSucceeded = true;
     for (const doc of newDocs) {
       if (uploadSessionIdRef.current !== sessionId) {
+        allSucceeded = false;
         break;
       }
       if (doc.rawFile) {
-        await processSingleFile(doc.id, doc.rawFile, sessionId);
+        const ok = await processSingleFile(doc.id, doc.rawFile, sessionId);
+        if (!ok) allSucceeded = false;
       }
+    }
+
+    // After documents upload and process successfully, open the PDF editor automatically!
+    if (allSucceeded && uploadSessionIdRef.current === sessionId) {
+      window.setTimeout(() => {
+        if (uploadSessionIdRef.current === sessionId) {
+          setIsUploadSheetOpen(false);
+          setStep('editor');
+          window.scrollTo({ top: 0, behavior: 'instant' });
+        }
+      }, 350);
     }
   };
 
@@ -330,7 +354,7 @@ export default function App() {
 
   const handleReviewDocuments = () => {
     setIsUploadSheetOpen(false);
-    setStep('preferences');
+    setStep('editor');
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
@@ -447,17 +471,46 @@ export default function App() {
     );
   };
 
+  const handleReplaceDocument = async (docId: string, newFile: File) => {
+    const buffer = await newFile.arrayBuffer();
+    const detectedPages = detectActualPageCount(newFile.name, new Uint8Array(buffer));
+    const detectedBlanks = detectBlankPagesFromBuffer(newFile.name, new Uint8Array(buffer));
+
+    setDocuments((prev) =>
+      prev.map((d) =>
+        d.id === docId
+          ? {
+              ...d,
+              rawFile: newFile,
+              name: newFile.name,
+              sizeBytes: newFile.size,
+              pageCount: detectedPages,
+              blankPages: detectedBlanks,
+            }
+          : d
+      )
+    );
+  };
+
   const summary = calculateMultiDocPrintSummary(documents);
   const liveEstimate = calculateLivePrintEstimate(documents, globalSettings);
 
   return (
     <div className="bg-surface font-body-md text-body-md text-on-surface antialiased min-h-screen flex flex-col">
-      <KioskHeader />
+      {step !== 'home' && step !== 'file-browser' && step !== 'editor' && <KioskHeader />}
 
-      <main className="flex-1 w-full bg-surface pt-3.5 pb-6 px-4 flex flex-col max-w-md mx-auto">
+      <main
+        className={`flex-1 w-full bg-surface flex flex-col mx-auto max-w-md ${
+          step === 'home' || step === 'editor' ? 'p-0' : 'pt-3.5 pb-8 px-4'
+        }`}
+      >
         {step === 'home' && (
           <UploadHomeStep
             onFilesSelected={handleFilesSelected}
+            onOpenBrowser={() => {
+              setStep('file-browser');
+              window.scrollTo({ top: 0, behavior: 'instant' });
+            }}
             isSheetOpen={isUploadSheetOpen && documents.length > 0}
           />
         )}
@@ -472,11 +525,30 @@ export default function App() {
           />
         )}
 
+        {step === 'editor' && (
+          <MobilePdfEditor
+            documents={documents}
+            onSaveAndContinue={(updatedDocs) => {
+              setDocuments(updatedDocs);
+              setStep('preferences');
+              window.scrollTo({ top: 0, behavior: 'instant' });
+            }}
+            onAddMoreFiles={handleFilesSelected}
+            onRemoveDocument={handleRemoveDocument}
+            onBack={() => {
+              setStep('home');
+              setIsUploadSheetOpen(false);
+              window.scrollTo({ top: 0, behavior: 'instant' });
+            }}
+          />
+        )}
+
         {step === 'preferences' && (
           <PreferencesStep
             documents={documents}
             globalSettings={globalSettings}
             previewBeforePrint={previewBeforePrint}
+            isMobileView={true}
             onTogglePreviewBeforePrint={() =>
               setPreviewBeforePrint((prev) => !prev)
             }
@@ -484,6 +556,7 @@ export default function App() {
             onUpdateBlankPages={handleUpdateDocumentBlankPages}
             onRemoveBlankPages={handleRemoveBlankPages}
             onRestoreOriginalPages={handleRestoreOriginalPages}
+            onReplaceDocument={handleReplaceDocument}
             onBack={() => {
               setStep('home');
               setIsUploadSheetOpen(true);
@@ -516,7 +589,7 @@ export default function App() {
       </main>
 
       {/* Floating Document Upload Bottom-Sheet Popup over the Existing Mobile Website */}
-      {isUploadSheetOpen && documents.length > 0 && (
+      {isUploadSheetOpen && documents.length > 0 && step !== 'editor' && (
         <FloatingUploadSheet
           documents={documents}
           onAddMoreFiles={handleFilesSelected}
