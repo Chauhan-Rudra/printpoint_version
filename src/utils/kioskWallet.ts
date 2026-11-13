@@ -199,3 +199,8 @@ export function useKioskWallet() {
     getTransactions: getKioskWalletTransactions,
   };
 }
+
+export function formatWalletBalanceInr(amount: number): string {
+  const safeAmount = Number.isFinite(amount) && amount >= 0 ? amount : 0;
+  return `₹${safeAmount.toFixed(2)}`;
+}

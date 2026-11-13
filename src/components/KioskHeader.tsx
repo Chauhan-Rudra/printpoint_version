@@ -11,7 +11,11 @@ import {
 
 import { Creator4Logo } from './Creator4Logo';
 
-export const KioskHeader: React.FC = () => {
+interface KioskHeaderProps {
+  onGoHome?: () => void;
+}
+
+export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
   const [showKioskInfo, setShowKioskInfo] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
 
@@ -24,7 +28,15 @@ export const KioskHeader: React.FC = () => {
             <Creator4Logo
               size="sm"
               interactive
-              onClick={() => setShowKioskInfo((prev) => !prev)}
+              onClick={() => {
+                if (onGoHome) {
+                  setShowKioskInfo(false);
+                  setShowHelpModal(false);
+                  onGoHome();
+                } else {
+                  setShowKioskInfo((prev) => !prev);
+                }
+              }}
             />
 
             <button

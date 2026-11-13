@@ -280,7 +280,11 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({
       {/* 1. Header Section */}
       <header className="px-4 pt-4 pb-3 flex items-center justify-between border-b border-[#1B4D2E]/10 bg-white/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <Creator4Logo className="w-10 h-10 shrink-0" />
+          <Creator4Logo
+            className="w-10 h-10 shrink-0"
+            interactive
+            onClick={onBackToHome}
+          />
           <div className="flex flex-col">
             <h1 className="text-base font-bold text-[#191C1A] leading-tight">
               Tools

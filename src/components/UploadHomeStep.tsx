@@ -24,6 +24,7 @@ import {
   ScanQrCode,
   Folder,
   Clock,
+  Camera,
 } from 'lucide-react';
 import {
   House as PhosphorHouse,
@@ -31,17 +32,20 @@ import {
   QrCode as PhosphorQrCode,
   Wrench as PhosphorWrench,
   UserCircle as PhosphorUserCircle,
+  Wallet as PhosphorWallet,
 } from '@phosphor-icons/react';
 import {
   NATIVE_FILE_ACCEPT_ATTR,
   validateSelectedFile,
 } from '../utils/kioskLogic';
 import { Haptics } from '../utils/haptics';
+import { useKioskWallet, formatWalletBalanceInr } from '../utils/kioskWallet';
+import { useUserProfile } from '../utils/userProfile';
 import { Creator4Logo } from './Creator4Logo';
 import { ScannerModal } from './ScannerModal';
 import { AccountPage } from './AccountPage';
+import { AddMoneyModal } from './AddMoneyModal';
 import { ToolsDashboard } from './tools/ToolsDashboard';
-import { KioskWalletCard } from './KioskWalletCard';
 import { HowToPrintSection } from './HowToPrintSection';
 
 interface UploadHomeStepProps {
@@ -67,7 +71,14 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [showOrdersModal, setShowOrdersModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
+  const [isHeaderAddMoneyOpen, setIsHeaderAddMoneyOpen] = useState(false);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'files' | 'scan' | 'tools' | 'account'>('home');
+  const previousTabRef = useRef<'home' | 'files' | 'tools' | 'account'>('home');
+
+  const { balance } = useKioskWallet();
+  const { profile } = useUserProfile();
+  const hasProfileImage = Boolean(profile.avatarUrl && profile.avatarUrl !== failedAvatarUrl);
 
   const processFileList = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -131,6 +142,9 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
 
   const handleTriggerScan = () => {
     Haptics.buttonPress();
+    if (activeTab !== 'scan') {
+      previousTabRef.current = activeTab;
+    }
     setActiveTab('scan');
     setShowScannerModal(true);
   };
@@ -212,52 +226,78 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
         />
       ) : (
         <>
-          {/* 1. Header Section */}
+          {/* 1. Header Section: Brand Logo (Left) + Wallet Balance Pill & Account Profile (Right) */}
           <header className="sticky top-0 z-40 w-full pt-safe bg-white/95 backdrop-blur-md border-b border-black/[0.05] transition-all">
-        <div className="h-16 px-4 flex items-center justify-between max-w-md mx-auto w-full">
-          {/* Left: Brand Logo + Brand Name */}
-          <div className="flex items-center gap-3 min-w-0">
-            <Creator4Logo
-              size="md"
-              interactive
-              onClick={() => {
-                Haptics.selection();
-                setShowKioskModal(true);
-              }}
-            />
+            <div className="h-16 px-4 flex items-center justify-between gap-3 max-w-md mx-auto w-full">
+              {/* Left: Brand Logo + Brand Name */}
+              <button
+                type="button"
+                onClick={handleScrollToTop}
+                aria-label="Print Point Home"
+                title="Go to Home"
+                className="inline-flex items-center gap-2.5 text-left min-w-0 group cursor-pointer active:scale-[0.98] transition-transform duration-150"
+              >
+                <Creator4Logo
+                  size="md"
+                  interactive={false}
+                  className="[&>div]:w-10 [&>div]:h-10 [&>div]:rounded-[12px] shrink-0"
+                />
+                <h1 className="text-[16px] sm:text-[17px] font-black text-[#191C1A] tracking-tight leading-none group-hover:text-[#1B4D2E] transition-colors whitespace-nowrap">
+                  Print <span className="text-[#1B4D2E]">Point</span>
+                </h1>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                Haptics.selection();
-                setShowKioskModal(true);
-              }}
-              className="flex items-center gap-2 text-left min-w-0 group"
-              title="View Station details"
-            >
-              <h1 className="text-[17px] font-black text-[#191C1A] tracking-tight leading-none group-hover:text-[#1B4D2E] transition-colors truncate">
-                Print <span className="text-[#1B4D2E]">Point</span>
-              </h1>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            </button>
-          </div>
+              {/* Right: Wallet Balance Pill + Circular Account Photo / Initials */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    Haptics.buttonPress();
+                    setIsHeaderAddMoneyOpen(true);
+                  }}
+                  aria-label={`Wallet balance ${formatWalletBalanceInr(balance)}`}
+                  className="h-10 sm:h-11 inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-full bg-[#F3F0E6] border border-[#194F34]/12 px-3 sm:px-3.5 shadow-[0_1px_2px_rgba(25,79,52,0.04)] hover:bg-[#ECE8DC] active:scale-[0.97] transition-all duration-150 cursor-pointer"
+                >
+                  <PhosphorWallet
+                    size={18}
+                    weight="fill"
+                    className="text-[#194F34] shrink-0 sm:w-5 sm:h-5"
+                    aria-hidden="true"
+                  />
+                  <span
+                    data-testid="header-wallet-balance"
+                    className="text-[13.5px] sm:text-[15px] font-bold tracking-tight text-[#202722] tabular-nums leading-none whitespace-nowrap"
+                  >
+                    {formatWalletBalanceInr(balance)}
+                  </span>
+                </button>
 
-          {/* Right: Quick Action Controls */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                Haptics.buttonPress();
-                setShowHelpModal(true);
-              }}
-              aria-label="Help and instructions"
-              className="w-9 h-9 rounded-xl text-[#545D56] hover:text-[#1B4D2E] hover:bg-[#1B4D2E]/5 active:scale-95 transition-all flex items-center justify-center border border-transparent hover:border-[#1B4D2E]/15"
-            >
-              <HelpCircle className="w-5 h-5" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </header>
+                {/* Circular Account Profile Image / Initials Button */}
+                <button
+                  type="button"
+                  onClick={handleTriggerAccount}
+                  aria-label={`Open account for ${profile.name}`}
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-[#194F34]/15 bg-[#EAF3ED] text-[#194F34] flex items-center justify-center shrink-0 shadow-2xs hover:ring-2 hover:ring-[#194F34]/20 active:scale-95 transition-all duration-150 cursor-pointer"
+                >
+                  {hasProfileImage ? (
+                    <img
+                      src={profile.avatarUrl}
+                      alt={`${profile.name} profile`}
+                      className="w-full h-full object-cover"
+                      onError={() => setFailedAvatarUrl(profile.avatarUrl ?? null)}
+                    />
+                  ) : (
+                    <span
+                      data-testid="header-profile-initials"
+                      className="text-[14px] sm:text-[15px] font-bold tracking-tight text-[#194F34] select-none leading-none"
+                    >
+                      {profile.initials}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </header>
 
       {/* Main Home Screen Content */}
       <div className="flex flex-col flex-1 w-full max-w-md mx-auto px-4 pt-4 pb-28 animate-apple-reveal">
@@ -285,55 +325,103 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
           </div>
         )}
 
-        {/* 1. Kiosk Wallet Card */}
-        <KioskWalletCard />
+        {/* 1. Redesigned Add Documents Hero Card */}
+        <section aria-label="Add Documents" className="mb-4">
+          <div className="w-full rounded-[24px] bg-white border border-[#194F34]/12 shadow-[0_10px_28px_-10px_rgba(25,79,52,0.14)] p-2.5 sm:p-3">
+            {/* Tactile Botanical Upload Tray */}
+            <div className="group/tray rounded-[14px] border-[1.5px] border-dashed border-[#194F34]/22 hover:border-[#194F34]/38 bg-gradient-to-b from-[#F4F9F5] via-[#EEF6F0] to-[#E6F1EA] px-4 py-4.5 flex flex-col items-center text-center transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none">
+              {/* Animated Layered Document Fan Visual Emblem */}
+              <div
+                aria-hidden="true"
+                className="relative flex items-center justify-center h-14 w-28 mb-2"
+              >
+                {/* Soft Breathing Radial Halo */}
+                <div className="absolute w-14 h-14 rounded-full bg-[#194F34]/12 blur-md animate-folder-halo pointer-events-none" />
 
-        {/* 2. Add Documents Card (Primary Action) */}
-        <section aria-label="Add Documents" className="mb-3">
-          <div
-            onClick={handleTriggerUpload}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                handleTriggerUpload();
-              }
-            }}
-            className="group w-full rounded-2xl bg-white border border-[#1B4D2E]/15 hover:border-[#1B4D2E]/30 shadow-2xs p-4 sm:p-5 flex flex-col items-center text-center cursor-pointer select-none active:scale-[0.99] transition-all duration-150"
-          >
-            {/* Clean Folder-Upload SVG Icon Container */}
-            <div className="w-12 h-12 rounded-2xl bg-[#EDF5F0] border border-[#1B4D2E]/15 text-[#1B4D2E] flex items-center justify-center mb-2 group-hover:bg-[#E2EFE7] transition-colors">
-              <FolderUp className="w-6 h-6 stroke-[2.2]" aria-hidden="true" />
+                {/* Left Swaying Document Sheet */}
+                <div className="absolute animate-paper-left w-8.5 h-10.5 rounded-lg bg-white border border-[#194F34]/15 shadow-xs flex flex-col justify-center gap-1 px-1.5 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <span className="w-full h-1 rounded-full bg-[#194F34]/20" />
+                  <span className="w-3/4 h-1 rounded-full bg-[#194F34]/15" />
+                  <span className="w-1/2 h-1 rounded-full bg-[#194F34]/10" />
+                </div>
+
+                {/* Right Counter-Swaying Document Sheet */}
+                <div className="absolute animate-paper-right w-8.5 h-10.5 rounded-lg bg-[#F3F0E6] border border-[#194F34]/15 shadow-xs flex flex-col justify-center gap-1 px-1.5 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <span className="w-full h-1 rounded-full bg-[#194F34]/20" />
+                  <span className="w-2/3 h-1 rounded-full bg-[#194F34]/15" />
+                  <span className="w-3/4 h-1 rounded-full bg-[#194F34]/10" />
+                </div>
+
+                {/* Center Floating Folder-Upload Badge */}
+                <div className="relative z-10 w-12 h-12 rounded-2xl bg-[#194F34] text-white shadow-[0_6px_16px_-3px_rgba(25,79,52,0.45)] flex items-center justify-center animate-folder-float group-hover/tray:scale-105 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none">
+                  <FolderUp className="w-5.5 h-5.5 stroke-[2.2]" />
+                </div>
+              </div>
+
+              <h2 className="text-[18px] font-extrabold text-[#191C1A] tracking-tight leading-tight">
+                Ready to print?
+              </h2>
+              <p className="text-[12.5px] text-[#545D56] mt-1 leading-snug">
+                Select files or photos from your phone.
+              </p>
+
+              {/* Primary CTA with Specular Light Sheen */}
+              <button
+                type="button"
+                onClick={handleTriggerUpload}
+                className="group/btn relative overflow-hidden mt-3.5 w-full h-12 rounded-xl bg-[#194F34] hover:bg-[#143F2A] text-white font-semibold text-[14px] flex items-center justify-center gap-2 shadow-[0_6px_16px_-4px_rgba(25,79,52,0.38)] active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-cta-sheen"
+                />
+                <Upload
+                  className="w-4 h-4 stroke-[2.4] group-hover/btn:-translate-y-0.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+                <span>Add Documents</span>
+              </button>
+
+              {/* Quiet Unboxed Format Metadata */}
+              <div className="mt-2.5 flex items-center justify-center gap-1.5 text-[11px] font-medium text-[#5A685F]">
+                <span>PDF</span>
+                <span aria-hidden="true" className="opacity-50">·</span>
+                <span>Word</span>
+                <span aria-hidden="true" className="opacity-50">·</span>
+                <span>Excel</span>
+                <span aria-hidden="true" className="opacity-50">·</span>
+                <span>Images up to 50 MB</span>
+              </div>
             </div>
 
-            {/* Heading */}
-            <h2 className="text-[17px] font-bold text-[#191C1A] tracking-tight leading-tight">
-              Ready to print?
-            </h2>
-
-            {/* Description */}
-            <p className="text-[12.5px] text-[#545D56] leading-snug mt-1 max-w-[260px]">
-              Upload documents from your phone.
-            </p>
-
-            {/* Primary Action Button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleTriggerUpload();
-              }}
-              className="mt-3.5 w-full max-w-[240px] h-11 rounded-xl bg-[#1B4D2E] hover:bg-[#153D24] text-white font-semibold text-[13.5px] flex items-center justify-center gap-2 shadow-2xs active:scale-[0.98] transition-all"
-            >
-              <FolderUp className="w-4 h-4 stroke-[2.2]" aria-hidden="true" />
-              <span>Add Documents</span>
-            </button>
-
-            {/* Supported file types footnote */}
-            <span className="text-[11px] text-[#707B72] font-normal mt-2">
-              PDF, Word, Excel, or images up to 50 MB
-            </span>
+            {/* Clean Hairline Quick-Source Row */}
+            <div className="mt-2 grid grid-cols-2 divide-x divide-[#194F34]/10">
+              <button
+                type="button"
+                onClick={() => {
+                  Haptics.buttonPress();
+                  cameraInputRef.current?.click();
+                }}
+                className="group/photo h-11 flex items-center justify-center gap-2 text-[12.5px] font-semibold text-[#202722] hover:text-[#194F34] hover:bg-[#F5FAF6] rounded-l-xl active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
+              >
+                <Camera
+                  className="w-4 h-4 text-[#194F34] stroke-[2.2] group-hover/photo:scale-110 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+                <span>Take Photo</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleTriggerBrowser}
+                className="group/files h-11 flex items-center justify-center gap-2 text-[12.5px] font-semibold text-[#202722] hover:text-[#194F34] hover:bg-[#F5FAF6] rounded-r-xl active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
+              >
+                <FolderOpen
+                  className="w-4 h-4 text-[#194F34] stroke-[2.2] group-hover/files:scale-110 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+                <span>Saved Files</span>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -566,7 +654,7 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
         isOpen={showScannerModal}
         onClose={() => {
           setShowScannerModal(false);
-          setActiveTab('home');
+          setActiveTab(previousTabRef.current || 'home');
         }}
         onUploadFromGallery={() => {
           fileInputRef.current?.click();
@@ -579,6 +667,13 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
           setActiveTab('home');
           handleTriggerUpload();
         }}
+      />
+
+      {/* Header Quick Add Money Modal */}
+      <AddMoneyModal
+        isOpen={isHeaderAddMoneyOpen}
+        onClose={() => setIsHeaderAddMoneyOpen(false)}
+        currentBalance={balance}
       />
 
       {/* Help Modal Dialog */}

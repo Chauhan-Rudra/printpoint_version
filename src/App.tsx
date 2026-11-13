@@ -497,7 +497,15 @@ export default function App() {
 
   return (
     <div className="bg-surface font-body-md text-body-md text-on-surface antialiased min-h-screen flex flex-col">
-      {step !== 'home' && step !== 'file-browser' && step !== 'editor' && <KioskHeader />}
+      {step !== 'home' && step !== 'file-browser' && step !== 'editor' && (
+        <KioskHeader
+          onGoHome={() => {
+            setStep('home');
+            setIsUploadSheetOpen(false);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
+      )}
 
       <main
         className={`flex-1 w-full bg-surface flex flex-col mx-auto max-w-md ${

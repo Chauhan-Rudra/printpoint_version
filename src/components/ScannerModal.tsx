@@ -194,20 +194,35 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     handleSuccessfulDetection('Kiosk #04');
   };
 
+  const handleClose = useCallback(() => {
+    Haptics.buttonPress();
+    stopCameraAndScanner();
+    onClose();
+  }, [onClose, stopCameraAndScanner]);
+
   useEffect(() => {
-    if (isOpen) {
-      const timer = setTimeout(() => {
-        startCameraAndScanner();
-      }, 60);
-      return () => clearTimeout(timer);
-    } else {
+    if (!isOpen) {
       stopCameraAndScanner();
+      return;
     }
 
+    const timer = setTimeout(() => {
+      startCameraAndScanner();
+    }, 60);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleKeyDown);
       stopCameraAndScanner();
     };
-  }, [isOpen, startCameraAndScanner, stopCameraAndScanner]);
+  }, [isOpen, startCameraAndScanner, stopCameraAndScanner, handleClose]);
 
   if (!isOpen) return null;
 
@@ -269,29 +284,26 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         <div className="w-full flex-1 bg-black/65 backdrop-blur-[2px]" />
       </div>
 
-      {/* 3. Floating Glassmorphic Top Header Bar */}
-      <header className="relative z-20 w-full pt-safe px-4 pt-3 flex items-center justify-between">
+      {/* 3. Floating Glassmorphic Top Header Bar (z-40 so Back arrow stays accessible in all camera states) */}
+      <header className="relative z-40 w-full pt-safe px-4 pt-3 flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => {
-            Haptics.buttonPress();
-            stopCameraAndScanner();
-            onClose();
-          }}
-          aria-label="Back to home"
-          className="w-11 h-11 rounded-full bg-black/45 hover:bg-black/65 text-white border border-white/20 backdrop-blur-md flex items-center justify-center active:scale-90 transition-all shadow-lg"
+          onClick={handleClose}
+          aria-label="Back to previous page"
+          className="h-10 pl-3 pr-3.5 rounded-full bg-black/55 hover:bg-black/75 text-white border border-white/25 backdrop-blur-md inline-flex items-center gap-1.5 active:scale-95 transition-all shadow-lg shrink-0 cursor-pointer"
         >
-          <ArrowLeft className="w-5 h-5 stroke-[2.3]" />
+          <ArrowLeft className="w-4 h-4 stroke-[2.5] shrink-0" aria-hidden="true" />
+          <span className="text-xs font-semibold tracking-tight leading-none">Back</span>
         </button>
 
         {/* Center Station Status Pill */}
-        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/50 border border-white/20 backdrop-blur-md shadow-lg">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-bold text-white tracking-wide">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 rounded-full bg-black/50 border border-white/20 backdrop-blur-md shadow-lg min-w-0">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <span className="text-xs font-bold text-white tracking-wide whitespace-nowrap">
             Kiosk #04
           </span>
-          <span className="text-white/40 text-[10px]">·</span>
-          <span className="text-[11px] text-white/80 font-medium">
+          <span className="hidden sm:inline text-white/40 text-[10px]">·</span>
+          <span className="hidden sm:inline text-[11px] text-white/80 font-medium whitespace-nowrap">
             Scan to Connect
           </span>
         </div>
@@ -302,17 +314,17 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             type="button"
             onClick={handleToggleTorch}
             aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
-            className={`w-11 h-11 rounded-full backdrop-blur-md border border-white/20 flex items-center justify-center active:scale-90 transition-all shadow-lg ${
+            className={`w-10 h-10 rounded-full backdrop-blur-md border border-white/25 flex items-center justify-center active:scale-90 transition-all shadow-lg shrink-0 cursor-pointer ${
               torchOn
                 ? 'bg-amber-400 text-slate-950 font-bold shadow-amber-400/30'
-                : 'bg-black/45 text-white hover:bg-black/65'
+                : 'bg-black/55 text-white hover:bg-black/75'
             }`}
           >
-            <Flashlight className="w-5 h-5 stroke-[2.2]" />
+            <Flashlight className="w-4.5 h-4.5 stroke-[2.2]" />
           </button>
         ) : (
-          <div className="w-11 h-11 flex items-center justify-center rounded-full bg-black/30 border border-white/10 backdrop-blur-md text-white/50 text-xs font-bold">
-            <QrCode className="w-4.5 h-4.5" />
+          <div className="w-10 h-10 flex items-center justify-center rounded-full bg-black/40 border border-white/15 backdrop-blur-md text-white/60 shrink-0">
+            <QrCode className="w-4 h-4" aria-hidden="true" />
           </div>
         )}
       </header>
@@ -363,10 +375,19 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
               <button
                 type="button"
                 onClick={handleDirectConnectKiosk04}
-                className="w-full h-11 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs border border-white/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                className="w-full h-11 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs border border-white/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Zap className="w-4 h-4 text-emerald-400" />
                 <span>Quick Connect to Kiosk #04</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleClose}
+                className="w-full h-10 rounded-xl bg-transparent hover:bg-white/10 text-white/80 hover:text-white font-semibold text-xs border border-white/15 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Go Back</span>
               </button>
             </div>
           </div>
@@ -375,7 +396,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
       {/* 6. Success Overlay on QR Detection */}
       {detectedKiosk && (
-        <div className="absolute inset-0 z-40 bg-[#1B4D2E]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-apple-card">
+        <div className="absolute inset-0 z-50 bg-[#1B4D2E]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-apple-card">
           <div className="w-18 h-18 rounded-3xl bg-white text-[#1B4D2E] flex items-center justify-center mb-4 shadow-xl animate-check-pop">
             <CheckCircle2 className="w-10 h-10 stroke-[2.5]" />
           </div>

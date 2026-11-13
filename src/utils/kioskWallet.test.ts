@@ -4,7 +4,7 @@ import {
   getKioskWalletBalance,
   addKioskWalletFunds,
   deductKioskWalletFunds,
-  DEFAULT_INITIAL_WALLET_BALANCE,
+  formatWalletBalanceInr,
 } from './kioskWallet';
 
 describe('Kiosk Wallet Utilities', () => {
@@ -33,5 +33,12 @@ describe('Kiosk Wallet Utilities', () => {
     const result = deductKioskWalletFunds(current + 99999, 'Overdraft Attempt');
     assert.strictEqual(result.success, false);
     assert.strictEqual(result.newBalance, current);
+  });
+
+  it('formats wallet balance in INR with two decimal places', () => {
+    assert.strictEqual(formatWalletBalanceInr(100), '₹100.00');
+    assert.strictEqual(formatWalletBalanceInr(240.5), '₹240.50');
+    assert.strictEqual(formatWalletBalanceInr(0), '₹0.00');
+    assert.strictEqual(formatWalletBalanceInr(-5), '₹0.00');
   });
 });

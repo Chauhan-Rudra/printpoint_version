@@ -478,6 +478,47 @@
   animation: sheetSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes paperFanLeft {
+  0%, 100% {
+    transform: translate(-20px, 4px) rotate(-12deg);
+  }
+  50% {
+    transform: translate(-22px, 0px) rotate(-15deg);
+  }
+}
+.animate-paper-left {
+  animation: paperFanLeft 4.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes paperFanRight {
+  0%, 100% {
+    transform: translate(20px, 4px) rotate(12deg);
+  }
+  50% {
+    transform: translate(22px, 0px) rotate(15deg);
+  }
+}
+.animate-paper-right {
+  animation: paperFanRight 4.2s cubic-bezier(0.45, 0, 0.55, 1) 0.6s infinite;
+}
+
+@keyframes ctaSheen {
+  0%, 55% {
+    transform: translateX(-140%) skewX(-18deg);
+    opacity: 0;
+  }
+  65% {
+    opacity: 1;
+  }
+  85%, 100% {
+    transform: translateX(260%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+.animate-cta-sheen {
+  animation: ctaSheen 4.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
   .animate-fade-in-up,
@@ -502,6 +543,9 @@
   .animate-gpay-ripple,
   .animate-panel-slide-up,
   .animate-sheet-slide-up,
+  .animate-paper-left,
+  .animate-paper-right,
+  .animate-cta-sheen,
   .animate-pulse {
     animation: none !important;
     transition: none !important;
