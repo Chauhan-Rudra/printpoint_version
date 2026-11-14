@@ -1,445 +1,446 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
+  ArrowClockwise,
   ArrowLeft,
-  Search,
-  Check,
-  Clock,
-  FileText,
-  FileSpreadsheet,
-  Download,
-  ChevronRight,
-  X,
-  HardDriveUpload,
-} from 'lucide-react';
+  ArrowRight,
+  FolderOpen,
+  Printer,
+  Trash,
+} from '@phosphor-icons/react';
+import { UploadedPrintDocument } from '../types/kiosk';
 import {
-  FileBrowserCategory,
-  VirtualFileItem,
-  VirtualFolder,
-} from '../types/kiosk';
-import {
-  VIRTUAL_FILES,
-  VIRTUAL_FOLDERS,
-  buildRealFileFromVirtualItem,
-  filterVirtualFiles,
   formatFileSize,
   getFileTypeShortLabel,
+  NATIVE_FILE_ACCEPT_ATTR,
 } from '../utils/kioskLogic';
+import { useKioskSession } from '../utils/kioskSession';
 import { Haptics } from '../utils/haptics';
-import { FileTypeIcon, FolderIllustration } from './FileTypeIcon';
+import { FileTypeIcon } from './FileTypeIcon';
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  IconButton,
+  PageHeading,
+  ProgressBar,
+  SecondaryText,
+  SectionHeading,
+  StatusIndicator,
+  SurfaceCard,
+  PP_EASE,
+  pageTransitionVariants,
+} from './ui';
 
-interface FileBrowserStepProps {
-  onBack: () => void;
-  onConfirmFiles: (files: File[]) => void;
+export interface FileBrowserStepProps {
+  documents: UploadedPrintDocument[];
+  onAddFiles: (
+    files: File[]
+  ) =>
+    | { addedCount: number; errors: string[] }
+    | Promise<{ addedCount: number; errors: string[] }>;
+  onRemoveDocument: (docId: string) => void;
+  onRetryDocument: (docId: string) => void;
+  onContinue: () => void;
+  onBack?: () => void;
+  embeddedInTab?: boolean;
 }
 
-const CATEGORIES: {
-  id: FileBrowserCategory;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-}[] = [
-  { id: 'recent', label: 'Recent', icon: Clock },
-  { id: 'documents', label: 'Documents', icon: FileText },
-  { id: 'pdfs', label: 'PDFs', icon: FileSpreadsheet },
-  { id: 'downloads', label: 'Downloads', icon: Download },
-];
-
 export const FileBrowserStep: React.FC<FileBrowserStepProps> = ({
+  documents,
+  onAddFiles,
+  onRemoveDocument,
+  onRetryDocument,
+  onContinue,
   onBack,
-  onConfirmFiles,
+  embeddedInTab = false,
 }) => {
-  const [activeCategory, setActiveCategory] =
-    useState<FileBrowserCategory>('recent');
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  // Ordered array of selected virtual file IDs to preserve selection order
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isSubmittingRef = useRef<boolean>(false);
+  const isPickingRef = useRef<boolean>(false);
 
-  const activeFolder: VirtualFolder | undefined = VIRTUAL_FOLDERS.find(
-    (f) => f.id === activeFolderId
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [isContinuing, setIsContinuing] = useState<boolean>(false);
+  const [isAddingBatch, setIsAddingBatch] = useState<boolean>(false);
+
+  const { session } = useKioskSession();
+
+  const sortedDocs = [...documents].sort((a, b) => a.orderIndex - b.orderIndex);
+  const readyDocs = sortedDocs.filter((d) => d.status === 'Ready');
+  const failedDocs = sortedDocs.filter((d) => d.status === 'Failed');
+  const isAnyProcessing = sortedDocs.some(
+    (d) =>
+      d.status === 'Waiting' ||
+      d.status === 'Uploading...' ||
+      d.status === 'Processing document...' ||
+      d.status === 'Preparing preview...'
   );
 
-  const visibleFiles = filterVirtualFiles(
-    VIRTUAL_FILES,
-    activeCategory,
-    activeFolderId,
-    searchQuery
-  );
+  const totalSizeBytes = sortedDocs.reduce((sum, doc) => sum + doc.sizeBytes, 0);
+  const totalReadyPages = readyDocs.reduce((sum, doc) => sum + doc.pageCount, 0);
 
-  const handleToggleFile = (fileId: string) => {
-    Haptics.progressTick();
-    setSelectedIds((prev) =>
-      prev.includes(fileId)
-        ? prev.filter((id) => id !== fileId)
-        : [...prev, fileId]
+  const canContinue =
+    sortedDocs.length > 0 &&
+    readyDocs.length > 0 &&
+    !isAnyProcessing &&
+    failedDocs.length === 0 &&
+    !isContinuing;
+
+  const handleOpenPicker = () => {
+    if (isPickingRef.current || isContinuing) return;
+    Haptics.buttonPress();
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const selectedFiles = Array.from(fileList);
+    e.target.value = '';
+
+    if (isPickingRef.current) return;
+    isPickingRef.current = true;
+    setIsAddingBatch(true);
+
+    try {
+      const result = await onAddFiles(selectedFiles);
+      if (result.errors.length > 0) {
+        Haptics.error();
+        setValidationErrors(result.errors);
+      } else {
+        setValidationErrors([]);
+      }
+      if (result.addedCount > 0) {
+        Haptics.selection();
+      }
+    } catch {
+      Haptics.error();
+      setValidationErrors(['Could not add one or more selected files. Please try again.']);
+    } finally {
+      isPickingRef.current = false;
+      setIsAddingBatch(false);
+    }
+  };
+
+  const handleRemove = (docId: string) => {
+    Haptics.selection();
+    onRemoveDocument(docId);
+  };
+
+  const handleRetry = (docId: string) => {
+    Haptics.buttonPress();
+    onRetryDocument(docId);
+  };
+
+  const handleContinueClick = () => {
+    if (!canContinue || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setIsContinuing(true);
+    Haptics.selection();
+
+    try {
+      onContinue();
+    } finally {
+      window.setTimeout(() => {
+        isSubmittingRef.current = false;
+        setIsContinuing(false);
+      }, 300);
+    }
+  };
+
+  const renderStatusControl = (doc: UploadedPrintDocument) => {
+    if (doc.status === 'Ready') {
+      return (
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <StatusIndicator tone="success" label="Ready" size="sm" />
+          <span className="text-[11.5px] font-medium text-[#545D56] tabular-nums">
+            {doc.pageCount} {doc.pageCount === 1 ? 'page' : 'pages'}
+          </span>
+        </div>
+      );
+    }
+
+    if (doc.status === 'Failed') {
+      return (
+        <div className="mt-2 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <StatusIndicator tone="error" label="Failed" size="sm" />
+            <button
+              type="button"
+              onClick={() => handleRetry(doc.id)}
+              className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-[#FFF1F2] border border-[#FECDD3] text-[12px] font-semibold text-[#93000A] hover:bg-[#FFE4E6] active:scale-[0.97] transition-all cursor-pointer"
+            >
+              <ArrowClockwise size={13} weight="bold" aria-hidden="true" />
+              <span>Retry</span>
+            </button>
+          </div>
+          {doc.errorMessage && (
+            <p className="text-[12px] text-[#93000A] leading-snug">
+              {doc.errorMessage}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    if (doc.status === 'Waiting') {
+      return (
+        <div className="mt-2 flex items-center gap-2">
+          <StatusIndicator tone="neutral" label="Waiting" size="sm" />
+        </div>
+      );
+    }
+
+    const uploadedLabel =
+      typeof doc.uploadedBytes === 'number' && doc.sizeBytes > 0
+        ? `${formatFileSize(doc.uploadedBytes)} / ${formatFileSize(doc.sizeBytes)}`
+        : `${doc.progressPercent}%`;
+
+    const stageLabel =
+      doc.status === 'Processing document...' || doc.status === 'Preparing preview...'
+        ? 'Processing...'
+        : `Uploading · ${uploadedLabel}`;
+
+    return (
+      <div className="mt-2.5 flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-2 text-[11.5px]">
+          <span className="font-semibold text-[#194F34] truncate">{stageLabel}</span>
+          <span className="font-bold text-[#194F34] tabular-nums shrink-0">
+            {doc.progressPercent}%
+          </span>
+        </div>
+        <ProgressBar value={doc.progressPercent} size="sm" tone="brand" />
+      </div>
     );
   };
 
-  const handleHeaderBack = () => {
-    Haptics.buttonPress();
-    if (activeFolderId) {
-      setActiveFolderId(null);
-      return;
-    }
-    onBack();
-  };
-
-  const handleAddSelectedDocuments = () => {
-    if (selectedIds.length === 0) return;
-
-    Haptics.selection();
-    const orderedFiles: File[] = [];
-    for (const id of selectedIds) {
-      const item = VIRTUAL_FILES.find((f) => f.id === id);
-      if (item) {
-        orderedFiles.push(buildRealFileFromVirtualItem(item));
-      }
-    }
-
-    if (orderedFiles.length > 0) {
-      onConfirmFiles(orderedFiles);
-    }
-  };
-
-  const handleNativeDeviceFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      Haptics.selection();
-      onConfirmFiles(Array.from(e.target.files));
-      e.target.value = '';
-    }
-  };
-
-  const selectedCount = selectedIds.length;
+  const validationBannerMessage =
+    validationErrors.length === 1
+      ? validationErrors[0]
+      : validationErrors.length > 1
+        ? `${validationErrors[0]} (+${validationErrors.length - 1} more)`
+        : '';
 
   return (
-    <div className="flex flex-col flex-1 w-full pb-24">
-      <div className="flex flex-col flex-1 w-full animate-fade-in-up">
-        {/* File Browser Header */}
-        <header className="flex items-center justify-between gap-2 py-2 mb-3 border-b border-outline-variant/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={handleHeaderBack}
-              aria-label={activeFolder ? 'Back to all folders' : 'Back'}
-              className="w-9 h-9 rounded-xl bg-white border border-outline-variant/60 text-on-surface flex items-center justify-center shrink-0 active:scale-95 transition-transform duration-150"
-            >
-              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-            </button>
-            <div className="flex flex-col min-w-0">
-              <h1 className="text-[18px] font-bold text-on-surface tracking-tight leading-tight truncate">
-                {activeFolder ? activeFolder.name : 'Select documents'}
-              </h1>
-              {activeFolder && (
-                <span className="text-[11px] text-on-surface-variant leading-none mt-0.5">
-                  Internal storage · {activeFolder.fileCount} files
-                </span>
-              )}
+    <motion.div
+      variants={pageTransitionVariants}
+      initial="initial"
+      animate="animate"
+      className={`flex flex-col flex-1 w-full ${
+        embeddedInTab ? 'pb-44' : 'pb-28'
+      }`}
+    >
+      {/* Hidden Real Native Multiple File Input */}
+      <input
+        ref={fileInputRef}
+        id="files-page-native-picker"
+        data-testid="files-page-native-input"
+        type="file"
+        multiple
+        accept={NATIVE_FILE_ACCEPT_ATTR}
+        onChange={handleFileInputChange}
+        className="sr-only"
+        tabIndex={-1}
+      />
+
+      {/* Top Header */}
+      <header className="pt-2 pb-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {!embeddedInTab && onBack && (
+              <IconButton
+                variant="surface"
+                size="md"
+                aria-label="Go back"
+                icon={<ArrowLeft size={18} weight="bold" />}
+                onClick={onBack}
+              />
+            )}
+            <div className="min-w-0">
+              <PageHeading>Add Your Files</PageHeading>
+              <SecondaryText className="mt-1">
+                Select the documents you want to print.
+              </SecondaryText>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Native OS file input fallback for uploading custom local device files */}
-            <label
-              htmlFor="device-native-file-picker"
-              title="Browse local device storage"
-              className="h-9 px-2.5 rounded-xl bg-white border border-outline-variant/60 text-on-surface-variant hover:text-[#1B4D2E] hover:border-[#1B4D2E]/40 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all duration-150"
-            >
-              <input
-                id="device-native-file-picker"
-                type="file"
-                multiple
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg"
-                onChange={handleNativeDeviceFiles}
-                className="sr-only"
-              />
-              <HardDriveUpload className="w-3.5 h-3.5 text-[#1B4D2E]" aria-hidden="true" />
-              <span>Device</span>
-            </label>
-
-            <button
-              type="button"
-              onClick={() => {
-                setSearchOpen((prev) => !prev);
-                if (searchOpen) setSearchQuery('');
-              }}
-              aria-label={searchOpen ? 'Close search' : 'Search documents'}
-              aria-expanded={searchOpen}
-              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors duration-150 active:scale-95 ${
-                searchOpen
-                  ? 'bg-[#EAF2EC] border-[#1B4D2E]/30 text-[#1B4D2E]'
-                  : 'bg-white border-outline-variant/60 text-on-surface-variant'
-              }`}
-            >
-              {searchOpen ? (
-                <X className="w-4 h-4" aria-hidden="true" />
-              ) : (
-                <Search className="w-4 h-4" aria-hidden="true" />
-              )}
-            </button>
-          </div>
-        </header>
-
-        {/* Expandable Search Bar */}
-        {searchOpen && (
-          <div className="mb-3 animate-fade-in-up">
-            <div className="relative flex items-center">
-              <Search
-                className="w-4 h-4 text-on-surface-variant absolute left-3.5 pointer-events-none"
-                aria-hidden="true"
-              />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search file name (e.g. Assignment, Resume)..."
-                aria-label="Search file name"
-                className="w-full h-10 pl-9 pr-3.5 rounded-xl bg-white border border-outline-variant/70 focus:border-[#1B4D2E] focus:outline-none text-[13px] text-on-surface placeholder:text-on-surface-variant/70"
-              />
+          {session.connected && (
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#EAF3ED] border border-[#194F34]/12 text-[12px] font-semibold text-[#194F34] shrink-0">
+              <Printer size={14} weight="bold" aria-hidden="true" />
+              <span>{session.activeStation.name}</span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Horizontal Browse Categories */}
-        {!activeFolder && (
-          <nav
-            aria-label="Browse Categories"
-            className="flex items-center justify-between gap-1.5 mb-3.5"
-          >
-            {CATEGORIES.map((cat) => {
-              const Icon = cat.icon;
-              const isActive = activeCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setActiveCategory(cat.id)}
-                  aria-pressed={isActive}
-                  className={`h-9 px-2.5 rounded-xl text-[11.5px] font-semibold flex items-center justify-center gap-1 border whitespace-nowrap transition-all duration-150 active:scale-[0.97] ${
-                    isActive
-                      ? 'bg-[#1B4D2E] text-white border-[#1B4D2E] shadow-2xs'
-                      : 'bg-white text-on-surface-variant border-outline-variant/60 hover:border-emerald-900/30'
-                  }`}
-                >
-                  <Icon
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      isActive ? 'text-emerald-200' : 'text-on-surface-variant'
-                    }`}
-                  />
-                  <span>{cat.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-      {/* Folders Section (Shown at root when not searching) */}
-      {!activeFolder && searchQuery.trim().length === 0 && (
-        <section aria-label="Folders" className="mb-3.5">
-          <div className="flex items-center justify-between mb-1.5">
-            <h2 className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
-              Folders
-            </h2>
-            <span className="text-[11px] text-on-surface-variant">
-              Phone storage
+        {session.connected && (
+          <div className="sm:hidden mt-2.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-[#545D56]">
+            <Printer size={14} weight="regular" className="text-[#194F34] shrink-0" aria-hidden="true" />
+            <span>
+              Kiosk: <strong className="font-semibold text-[#191C1A]">{session.activeStation.name}</strong>
             </span>
           </div>
+        )}
+      </header>
 
-          <div className="grid grid-cols-2 gap-2">
-            {VIRTUAL_FOLDERS.map((folder) => (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => setActiveFolderId(folder.id)}
-                className="p-2 rounded-xl bg-white border border-outline-variant/50 hover:border-[#1B4D2E]/40 active:scale-[0.98] transition-all duration-200 flex items-center justify-between gap-2 text-left shadow-2xs"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <FolderIllustration />
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[13px] font-bold text-on-surface truncate leading-tight">
-                      {folder.name}
-                    </span>
-                    <span className="text-[11px] text-on-surface-variant mt-0.5">
-                      {folder.fileCount} {folder.fileCount === 1 ? 'file' : 'files'}
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight
-                  className="w-4 h-4 text-on-surface-variant/70 shrink-0"
-                  aria-hidden="true"
-                />
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Active Folder Breadcrumb Bar */}
-      {activeFolder && (
-        <div className="mb-3 px-3 py-2 rounded-xl bg-[#F3F6F3] border border-emerald-900/10 flex items-center justify-between animate-fade-in-up">
-          <div className="flex items-center gap-2 min-w-0 text-[12px]">
-            <button
-              type="button"
-              onClick={() => setActiveFolderId(null)}
-              className="font-semibold text-[#1B4D2E] hover:underline"
+      {/* Primary File Picker Action */}
+      <section aria-label="Choose files" className="mb-6">
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          loading={isAddingBatch}
+          onClick={handleOpenPicker}
+          className="group min-h-[54px] text-[15px] shadow-[0_2px_8px_rgba(25,79,52,0.16)]"
+          leftIcon={
+            <motion.span
+              className="inline-flex items-center justify-center"
+              whileHover={{ y: -1.5, scale: 1.05 }}
+              transition={{ duration: 0.16, ease: PP_EASE.standard }}
             >
-              Folders
-            </button>
-            <span className="text-on-surface-variant">/</span>
-            <span className="font-bold text-on-surface truncate">
-              {activeFolder.name}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setActiveFolderId(null)}
-            className="text-[11px] font-semibold text-[#1B4D2E] px-2 py-0.5 rounded-md bg-white border border-emerald-900/15"
-          >
-            All files
-          </button>
+              <FolderOpen size={20} weight="fill" aria-hidden="true" />
+            </motion.span>
+          }
+        >
+          Choose Files
+        </Button>
+
+        <p className="mt-2.5 text-center text-[12px] text-[#545D56] leading-relaxed px-1">
+          Supports PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG, TXT and CSV · Max 100 MB per file
+        </p>
+      </section>
+
+      {/* Validation & Duplicate Feedback */}
+      {validationBannerMessage && (
+        <div className="mb-5" data-testid="files-validation-error">
+          <ErrorState
+            variant="banner"
+            message={validationBannerMessage}
+            onDismiss={() => setValidationErrors([])}
+          />
         </div>
       )}
 
-      {/* Realistic Document List */}
-      <section aria-label="Document List" className="flex flex-col flex-1">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-[12px] font-bold text-on-surface-variant uppercase tracking-wider">
-            {activeFolder
-              ? `${activeFolder.name} Files`
-              : CATEGORIES.find((c) => c.id === activeCategory)?.label ||
-                'Documents'}
-          </h2>
-          <span className="text-[11px] font-medium text-on-surface-variant">
-            {visibleFiles.length} {visibleFiles.length === 1 ? 'item' : 'items'}
-          </span>
+      {/* Selected Files List */}
+      <section aria-label="Selected files" className="flex flex-col flex-1">
+        <div className="flex items-center justify-between gap-2 mb-2.5 px-0.5">
+          <SectionHeading>Selected Files</SectionHeading>
+          {sortedDocs.length > 0 && (
+            <span className="text-[12px] font-medium text-[#545D56] tabular-nums">
+              {sortedDocs.length} {sortedDocs.length === 1 ? 'file' : 'files'} ·{' '}
+              {formatFileSize(totalSizeBytes)}
+            </span>
+          )}
         </div>
 
-        {visibleFiles.length === 0 ? (
-          <div className="p-6 rounded-2xl bg-white border border-outline-variant/50 text-center my-2">
-            <p className="text-[13px] font-semibold text-on-surface mb-1">
-              No matching documents found
-            </p>
-            <p className="text-[12px] text-on-surface-variant">
-              Try a different category or clear your search filter.
-            </p>
-          </div>
+        {sortedDocs.length === 0 ? (
+          <EmptyState
+            icon={<FolderOpen size={24} weight="duotone" aria-hidden="true" />}
+            title="No files selected yet"
+            description="Tap Choose Files above to add documents from your phone storage or cloud drive."
+          />
         ) : (
-          <div className="rounded-2xl bg-white border border-outline-variant/60 shadow-2xs divide-y divide-outline-variant/35 overflow-hidden">
-            {visibleFiles.map((file: VirtualFileItem) => {
-              const selectedIndex = selectedIds.indexOf(file.id);
-              const isSelected = selectedIndex !== -1;
-              const shortType = getFileTypeShortLabel(file.name);
-
-              return (
-                <button
-                  key={file.id}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={isSelected}
-                  aria-label={`Select ${file.name}`}
-                  onClick={() => handleToggleFile(file.id)}
-                  className={`w-full p-3.5 flex items-center justify-between gap-3 text-left transition-colors duration-200 active:scale-[0.995] ${
-                    isSelected
-                      ? 'bg-[#F2F7F4]'
-                      : 'bg-white hover:bg-surface-container-low/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <FileTypeIcon
-                      fileName={file.name}
-                      formatKind={file.formatKind}
-                    />
-
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span
-                        className={`text-[14px] font-semibold truncate leading-snug ${
-                          isSelected ? 'text-[#133820]' : 'text-on-surface'
-                        }`}
-                      >
-                        {file.name}
-                      </span>
-
-                      <div className="flex items-center gap-1.5 text-[11px] text-on-surface-variant mt-0.5 truncate">
-                        <span className="font-semibold text-on-surface/80">
-                          {shortType}
-                        </span>
-                        <span>·</span>
-                        <span>{formatFileSize(file.sizeBytes)}</span>
-                        <span>·</span>
-                        <span className="truncate">{file.modifiedLabel}</span>
-                      </div>
+          <SurfaceCard padding="none" className="overflow-hidden divide-y divide-[#E4EAE5]">
+            <AnimatePresence initial={false}>
+              {sortedDocs.map((doc) => {
+                const fileExtLabel = getFileTypeShortLabel(doc.name);
+                return (
+                  <motion.div
+                    key={doc.id}
+                    layout
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+                    transition={{ duration: 0.18, ease: PP_EASE.standard }}
+                    data-testid={`selected-file-row-${doc.id}`}
+                    className="p-3.5 sm:p-4 flex items-start gap-3 bg-white"
+                  >
+                    <div className="pt-0.5 shrink-0">
+                      <FileTypeIcon fileName={doc.name} />
                     </div>
-                  </div>
 
-                  {/* Selection Checkbox with Order Indicator */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isSelected && selectedCount > 1 && (
-                      <span
-                        aria-hidden="true"
-                        className="text-[10px] font-bold text-[#1B4D2E] bg-[#E3EFE7] px-1.5 py-0.5 rounded-md tabular-nums"
-                      >
-                        #{selectedIndex + 1}
-                      </span>
-                    )}
-                    <div
-                      className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all duration-200 ${
-                        isSelected
-                          ? 'bg-[#1B4D2E] border-[#1B4D2E] text-white shadow-2xs'
-                          : 'bg-white border-outline-variant text-transparent'
-                      }`}
-                    >
-                      {isSelected && (
-                        <Check
-                          className="w-3.5 h-3.5 stroke-[2.6] animate-check-pop"
-                          aria-hidden="true"
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="text-[14px] font-semibold text-[#191C1A] truncate leading-snug"
+                            title={doc.name}
+                          >
+                            {doc.name}
+                          </p>
+                          <p className="text-[12px] text-[#545D56] mt-0.5 tabular-nums truncate">
+                            {fileExtLabel} · {formatFileSize(doc.sizeBytes)}
+                          </p>
+                        </div>
+
+                        <IconButton
+                          variant="ghost"
+                          size="md"
+                          aria-label={`Remove ${doc.name}`}
+                          icon={<Trash size={17} weight="regular" />}
+                          onClick={() => handleRemove(doc.id)}
+                          className="-mr-1.5 -mt-1.5 text-[#545D56] hover:text-[#BA1A1A] hover:bg-[#FFF1F2]"
                         />
-                      )}
+                      </div>
+
+                      {renderStatusControl(doc)}
                     </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </SurfaceCard>
         )}
       </section>
-      </div>
 
-      {/* Sticky Bottom Multi-Document Selection Bar */}
+      {/* Prominent Bottom Continue Action */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-30 pb-safe bg-white/95 backdrop-blur-md border-t border-outline-variant/50 px-4 py-3 transition-all duration-250 ${
-          selectedCount > 0
-            ? 'translate-y-0 opacity-100'
-            : 'translate-y-1 opacity-95'
+        className={`fixed left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E4EAE5] px-4 py-3 ${
+          embeddedInTab
+            ? 'bottom-[calc(66px+env(safe-area-inset-bottom,0px))]'
+            : 'bottom-0 pb-safe'
         }`}
       >
-        <div className="max-w-md mx-auto w-full flex items-center justify-between gap-3">
-          <div className="flex flex-col min-w-0">
-            <span
-              data-testid="selected-documents-count"
-              className="text-[13px] font-bold text-on-surface tabular-nums"
-            >
-              {selectedCount === 0
-                ? 'No documents selected'
-                : `${selectedCount} ${
-                    selectedCount === 1 ? 'document' : 'documents'
-                  } selected`}
-            </span>
-            <span className="text-[11px] text-on-surface-variant truncate">
-              {selectedCount === 0
-                ? 'Tap files above to select'
-                : 'Selection order preserved'}
-            </span>
-          </div>
+        <div className="max-w-md md:max-w-3xl lg:max-w-4xl mx-auto w-full flex flex-col gap-2">
+          {sortedDocs.length > 0 && (
+            <div className="flex items-center justify-between gap-2 text-[12px] px-0.5 tabular-nums">
+              {failedDocs.length > 0 ? (
+                <span className="font-semibold text-[#BA1A1A]">
+                  {failedDocs.length}{' '}
+                  {failedDocs.length === 1 ? 'file needs attention' : 'files need attention'} — retry or remove to continue
+                </span>
+              ) : isAnyProcessing ? (
+                <span className="font-semibold text-[#194F34]">
+                  Reading and preparing your files...
+                </span>
+              ) : (
+                <span className="font-semibold text-[#194F34]">
+                  {readyDocs.length} {readyDocs.length === 1 ? 'file' : 'files'} ready ·{' '}
+                  {totalReadyPages} {totalReadyPages === 1 ? 'page' : 'pages'}
+                </span>
+              )}
+              <span className="text-[#545D56] font-medium shrink-0">
+                {formatFileSize(totalSizeBytes)}
+              </span>
+            </div>
+          )}
 
-          <button
-            type="button"
-            disabled={selectedCount === 0}
-            onClick={handleAddSelectedDocuments}
-            className="min-h-[46px] px-5 rounded-xl bg-[#1B4D2E] hover:bg-primary disabled:opacity-45 text-white font-semibold text-[14px] flex items-center justify-center shrink-0 shadow-xs active:scale-[0.98] transition-all duration-150"
+          <Button
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={isAnyProcessing || isContinuing}
+            disabled={!canContinue}
+            onClick={handleContinueClick}
+            rightIcon={<ArrowRight size={17} weight="bold" aria-hidden="true" />}
+            data-testid="files-continue-button"
           >
-            Add Documents
-          </button>
+            Continue
+          </Button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

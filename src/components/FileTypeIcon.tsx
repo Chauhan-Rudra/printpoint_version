@@ -81,6 +81,7 @@ export const FileTypeIcon: React.FC<FileTypeIconProps> = ({
   }
 
   if (kind === 'excel') {
+    const isCsv = fileName.toLowerCase().endsWith('.csv');
     return (
       <div
         className={`${boxClasses} bg-[#F0F7F3] border border-[#C6E2D1] text-[#1C643F] flex flex-col items-center justify-center shrink-0 select-none`}
@@ -103,7 +104,7 @@ export const FileTypeIcon: React.FC<FileTypeIconProps> = ({
           />
         </svg>
         <span className="text-[8px] font-bold tracking-wider leading-none uppercase">
-          XLS
+          {isCsv ? 'CSV' : 'XLS'}
         </span>
       </div>
     );

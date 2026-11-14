@@ -1,37 +1,32 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   FileText,
-  Minimize2,
+  ArrowsIn,
   FileImage,
-  Layers,
-  RotateCw,
-  Trash2,
-  ArrowUpDown,
+  Stack,
+  ArrowClockwise,
+  Trash,
+  ArrowsDownUp,
   Crop,
-  Split,
-  FileCheck2,
-  Scaling,
-  Sparkles,
-  UserCheck,
-  CreditCard,
+  Scissors,
+  FileMagnifyingGlass,
+  FrameCorners,
+  Sliders,
+  UserCircleCheck,
+  IdentificationCard,
   FilePlus,
-  RefreshCw,
-  Printer,
+  ArrowsClockwise,
   Camera,
   Copy,
-  Eye,
-  Sliders,
-  Search,
-  ArrowRight,
-  ChevronRight,
-  ShieldCheck,
+  MagnifyingGlass,
+  CaretRight,
   X,
-  Wrench,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 import { Creator4Logo } from '../Creator4Logo';
 import { ToolId, IndividualToolModal } from './IndividualToolModal';
-import { FullScreenPdfEditor } from './FullScreenPdfEditor';
 import { Haptics } from '../../utils/haptics';
+import { useTranslation } from '../../utils/i18n';
 
 interface ToolsDashboardProps {
   onBackToHome: () => void;
@@ -42,8 +37,7 @@ interface ToolDefinition {
   id: ToolId;
   name: string;
   category: 'pdf' | 'image' | 'scan';
-  icon: React.ComponentType<{ className?: string }>;
-  tag?: string;
+  icon: React.FC<{ size?: number; weight?: 'regular' | 'bold' | 'duotone'; className?: string }>;
   desc: string;
 }
 
@@ -51,176 +45,147 @@ const ALL_TOOLS: ToolDefinition[] = [
   // 1. PDF Tools
   {
     id: 'merge-pdf',
-    name: 'Merge PDF',
+    name: 'Merge PDFs',
     category: 'pdf',
-    icon: Layers,
-    tag: 'Popular',
-    desc: 'Combine multiple PDFs into one document',
+    icon: Stack,
+    desc: 'Combine multiple PDF files into one document',
+  },
+  {
+    id: 'split-pdf',
+    name: 'Split PDF',
+    category: 'pdf',
+    icon: Scissors,
+    desc: 'Extract selected pages into a new PDF',
   },
   {
     id: 'compress-pdf',
     name: 'Compress PDF',
     category: 'pdf',
-    icon: Minimize2,
-    tag: 'Save Size',
+    icon: ArrowsIn,
     desc: 'Reduce file size while keeping text sharp',
   },
   {
-    id: 'pdf-to-jpg',
-    name: 'PDF to JPG',
+    id: 'rotate-pages',
+    name: 'Rotate Pages',
     category: 'pdf',
-    icon: FileImage,
-    desc: 'Extract every page as a high-res image',
+    icon: ArrowClockwise,
+    desc: 'Rotate pages by 90°, 180°, or 270°',
+  },
+  {
+    id: 'delete-pages',
+    name: 'Remove Pages',
+    category: 'pdf',
+    icon: Trash,
+    desc: 'Delete unwanted pages before printing',
+  },
+  {
+    id: 'reorder-pages',
+    name: 'Reorder Pages',
+    category: 'pdf',
+    icon: ArrowsDownUp,
+    desc: 'Rearrange page sequence cleanly',
   },
   {
     id: 'pages-per-sheet',
     name: 'Pages / Sheet',
     category: 'pdf',
     icon: Copy,
-    tag: 'Eco',
-    desc: 'Print 2 or 4 pages per sheet (N-Up)',
-  },
-  {
-    id: 'rotate-pages',
-    name: 'Rotate Pages',
-    category: 'pdf',
-    icon: RotateCw,
-    desc: 'Rotate pages by 90°, 180° or 270°',
-  },
-  {
-    id: 'delete-pages',
-    name: 'Delete Pages',
-    category: 'pdf',
-    icon: Trash2,
-    desc: 'Remove unwanted pages cleanly',
-  },
-  {
-    id: 'reorder-pages',
-    name: 'Reorder Pages',
-    category: 'pdf',
-    icon: ArrowUpDown,
-    desc: 'Rearrange page sequences visually',
+    desc: 'Arrange 2 or 4 pages per sheet (N-Up)',
   },
   {
     id: 'crop-pages',
     name: 'Crop Pages',
     category: 'pdf',
     icon: Crop,
-    desc: 'Trim page margins and white borders',
-  },
-  {
-    id: 'split-pdf',
-    name: 'Split PDF',
-    category: 'pdf',
-    icon: Split,
-    desc: 'Extract specific pages into a new PDF',
+    desc: 'Trim outer page margins and whitespace',
   },
   {
     id: 'blank-page-removal',
     name: 'Blank Removal',
     category: 'pdf',
-    icon: FileCheck2,
-    tag: 'Smart',
-    desc: 'Auto-detect and strip empty pages',
+    icon: FileMagnifyingGlass,
+    desc: 'Detect and strip empty pages automatically',
+  },
+  {
+    id: 'pdf-to-jpg',
+    name: 'PDF to JPG',
+    category: 'pdf',
+    icon: FileImage,
+    desc: 'Save each PDF page as a JPG image',
   },
 
-  // 2. Image & Photo Tools
-  {
-    id: 'resize-image',
-    name: 'Resize Image',
-    category: 'image',
-    icon: Scaling,
-    desc: 'Adjust pixel dimensions with aspect lock',
-  },
-  {
-    id: 'image-enhancement',
-    name: 'Enhance Photo',
-    category: 'image',
-    icon: Sparkles,
-    tag: 'AI Filter',
-    desc: 'Improve contrast, clarity and sharpness',
-  },
-  {
-    id: 'passport-photo',
-    name: 'Passport Photo',
-    category: 'image',
-    icon: UserCheck,
-    tag: 'Print Ready',
-    desc: 'Tile 6 or 8 passport photos on A4 sheet',
-  },
-  {
-    id: 'id-card-layout',
-    name: 'ID Card Print',
-    category: 'image',
-    icon: CreditCard,
-    desc: 'Front and back card on one page',
-  },
+  // 2. Image & Print Prep
   {
     id: 'image-to-pdf',
     name: 'Image to PDF',
     category: 'image',
     icon: FilePlus,
-    tag: 'Essential',
-    desc: 'Convert photos or scans into clean PDF',
+    desc: 'Convert photos into a printable PDF',
+  },
+  {
+    id: 'passport-photo',
+    name: 'Passport Photo',
+    category: 'image',
+    icon: UserCircleCheck,
+    desc: 'Tile 6 or 8 passport photos on A4',
+  },
+  {
+    id: 'id-card-layout',
+    name: 'ID Card Layout',
+    category: 'image',
+    icon: IdentificationCard,
+    desc: 'Place front and back ID on one A4 page',
+  },
+  {
+    id: 'resize-image',
+    name: 'Resize Image',
+    category: 'image',
+    icon: FrameCorners,
+    desc: 'Change pixel dimensions with aspect lock',
   },
   {
     id: 'image-crop',
     name: 'Crop Image',
     category: 'image',
     icon: Crop,
-    desc: 'Crop photo framing before printing',
+    desc: 'Trim photo framing and margins cleanly',
+  },
+  {
+    id: 'image-enhancement',
+    name: 'Enhance Photo',
+    category: 'image',
+    icon: Sliders,
+    desc: 'Improve contrast, clarity, and tone',
   },
   {
     id: 'image-format-converter',
     name: 'Format Convert',
     category: 'image',
-    icon: RefreshCw,
-    desc: 'Convert JPG, PNG, and WebP',
-  },
-  {
-    id: 'photo-printing',
-    name: 'Photo Printing',
-    category: 'image',
-    icon: Printer,
-    desc: 'Prepare photos for 4x6, 5x7 or A4 prints',
+    icon: ArrowsClockwise,
+    desc: 'Convert between JPG, PNG, and WebP',
   },
 
-  // 3. Scan & Document Tools
+  // 3. Scan Tools
   {
     id: 'scan-to-pdf',
     name: 'Scan to PDF',
     category: 'scan',
     icon: Camera,
-    tag: 'Camera',
-    desc: 'Capture physical papers via camera into PDF',
+    desc: 'Capture a paper document into a PDF',
   },
   {
     id: 'multi-page-scan',
     name: 'Multi-Page Scan',
     category: 'scan',
     icon: Copy,
-    desc: 'Snap several pages into one document',
-  },
-  {
-    id: 'merge-documents',
-    name: 'Merge Docs',
-    category: 'scan',
-    icon: Layers,
-    desc: 'Combine multiple document formats',
-  },
-  {
-    id: 'document-preview',
-    name: 'Doc Preview',
-    category: 'scan',
-    icon: Eye,
-    desc: 'High-res page review before kiosk print',
+    desc: 'Snap multiple pages into one PDF',
   },
   {
     id: 'scan-enhancement',
     name: 'Scan Clean',
     category: 'scan',
     icon: Sliders,
-    desc: 'High-contrast text filter for clear reading',
+    desc: 'High-contrast text cleanup filter',
   },
 ];
 
@@ -228,20 +193,20 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({
   onBackToHome,
   onSendToPrint,
 }) => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeToolId, setActiveToolId] = useState<ToolId | null>(null);
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [showAllPdfTools, setShowAllPdfTools] = useState(false);
 
-  const pdfTools = ALL_TOOLS.filter((t) => t.category === 'pdf');
-  const imageTools = ALL_TOOLS.filter((t) => t.category === 'image');
-  const scanTools = ALL_TOOLS.filter((t) => t.category === 'scan');
+  const pdfTools = ALL_TOOLS.filter((tool) => tool.category === 'pdf');
+  const imageTools = ALL_TOOLS.filter((tool) => tool.category === 'image');
+  const scanTools = ALL_TOOLS.filter((tool) => tool.category === 'scan');
 
-  const filteredTools = searchQuery.trim()
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredTools = normalizedQuery
     ? ALL_TOOLS.filter(
-        (t) =>
-          t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          t.desc.toLowerCase().includes(searchQuery.toLowerCase())
+        (tool) =>
+          tool.name.toLowerCase().includes(normalizedQuery) ||
+          tool.desc.toLowerCase().includes(normalizedQuery)
       )
     : null;
 
@@ -250,281 +215,171 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({
     setActiveToolId(id);
   };
 
-  const renderToolButton = (tool: ToolDefinition) => {
+  const renderToolRow = (tool: ToolDefinition) => {
     const IconComponent = tool.icon;
     return (
       <button
         key={tool.id}
         type="button"
         onClick={() => handleToolClick(tool.id)}
-        className="group relative flex flex-col items-center text-center p-2 rounded-2xl hover:bg-[#F2F6F3] active:scale-95 transition-all"
+        className="w-full min-h-[62px] px-3.5 py-2.5 flex items-center gap-3 text-left hover:bg-[#F8FAF6] active:bg-[#EAF3ED]/60 active:scale-[0.99] transition-all group"
       >
-        {/* Soft Green Icon Container */}
-        <div className="w-12 h-12 rounded-2xl bg-[#EDF5F0] border border-[#1B4D2E]/10 group-hover:border-[#1B4D2E]/25 text-[#1B4D2E] flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-all">
-          <IconComponent className="w-5 h-5 stroke-[2]" />
+        <div className="w-10 h-10 rounded-xl bg-[#EAF3ED] border border-[#194F34]/10 text-[#194F34] flex items-center justify-center shrink-0 transition-colors group-hover:border-[#194F34]/25">
+          <IconComponent size={20} weight="regular" aria-hidden="true" />
         </div>
-        <span className="text-[11px] font-semibold text-[#191C1A] leading-tight line-clamp-2 max-w-[70px]">
-          {tool.name}
-        </span>
-        {tool.tag && (
-          <span className="mt-0.5 text-[8.5px] font-bold text-[#1B4D2E] bg-[#EDF5F0] px-1.5 py-0.2 rounded-full border border-[#1B4D2E]/15">
-            {tool.tag}
-          </span>
-        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] font-semibold text-[#191C1A] leading-tight truncate">
+            {tool.name}
+          </div>
+          <div className="text-[12px] text-[#545D56] leading-snug truncate mt-0.5">
+            {tool.desc}
+          </div>
+        </div>
+        <CaretRight
+          size={15}
+          weight="bold"
+          className="text-[#545D56]/60 group-hover:text-[#194F34] group-hover:translate-x-0.5 transition-all shrink-0"
+          aria-hidden="true"
+        />
       </button>
     );
   };
 
+  const renderSection = (
+    title: string,
+    IconHeader: React.FC<{ size?: number; weight?: 'regular' | 'bold'; className?: string }>,
+    tools: ToolDefinition[]
+  ) => (
+    <section aria-label={title} className="flex flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-1.5">
+          <IconHeader size={15} weight="bold" className="text-[#194F34]" aria-hidden="true" />
+          <h2 className="text-[12.5px] font-bold text-[#191C1A] tracking-tight">{title}</h2>
+        </div>
+        <span className="text-[11px] font-medium text-[#545D56] tabular-nums">
+          {tools.length} tools
+        </span>
+      </div>
+      <div className="rounded-2xl bg-white border border-[#E2E7E1] divide-y divide-[#E2E7E1]/70 overflow-hidden">
+        {tools.map(renderToolRow)}
+      </div>
+    </section>
+  );
+
   return (
-    <div className="flex flex-col flex-1 w-full bg-[#F8FAF8] text-[#191C1A] pb-24">
-      {/* 1. Header Section */}
-      <header className="px-4 pt-4 pb-3 flex items-center justify-between border-b border-[#1B4D2E]/10 bg-white/80 backdrop-blur-md sticky top-0 z-10">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col flex-1 w-full bg-[#F8FAF6] text-[#191C1A] pb-24">
+      {/* Header */}
+      <header className="px-4 pt-safe bg-white/95 border-b border-[#E2E7E1] sticky top-0 z-10 backdrop-blur-xs">
+        <div className="max-w-lg mx-auto h-14 flex items-center justify-between gap-3">
           <Creator4Logo
-            className="w-10 h-10 shrink-0"
+            size="sm"
             interactive
             onClick={onBackToHome}
+            className="shrink-0"
           />
-          <div className="flex flex-col">
-            <h1 className="text-base font-bold text-[#191C1A] leading-tight">
-              Tools
-            </h1>
-            <p className="text-[11.5px] text-[#545D56] leading-tight">
-              PDFs, photos and documents, all in one place.
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              Haptics.buttonPress();
+              onBackToHome();
+            }}
+            className="min-h-[38px] px-3.5 rounded-xl text-[12px] font-semibold text-[#194F34] bg-[#EAF3ED] border border-[#194F34]/15 active:scale-95 transition-transform shrink-0"
+          >
+            {t.navHome}
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            Haptics.buttonPress();
-            onBackToHome();
-          }}
-          className="text-xs font-semibold text-[#1B4D2E] bg-[#EDF5F0] px-3 py-1.5 rounded-xl border border-[#1B4D2E]/15 active:scale-95"
-        >
-          Home
-        </button>
       </header>
 
-      {/* Main Container */}
-      <main className="p-4 flex flex-col gap-4 max-w-md mx-auto w-full">
-        {/* Search Bar */}
+      {/* Main Content */}
+      <main className="px-4 pt-4 pb-6 flex flex-col gap-5 max-w-lg mx-auto w-full">
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          className="flex flex-col gap-1"
+        >
+          <h1 className="text-[20px] font-bold text-[#191C1A] tracking-tight leading-tight">
+            {t.toolsTitle}
+          </h1>
+          <p className="text-[13px] text-[#545D56] leading-snug">
+            Useful tools to prepare your documents for printing.
+          </p>
+        </motion.div>
+
+        {/* Search Input */}
         <div className="relative">
-          <Search className="w-4 h-4 text-[#707B72] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <MagnifyingGlass
+            size={16}
+            weight="bold"
+            className="text-[#545D56] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            aria-hidden="true"
+          />
           <input
-            type="text"
+            type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search tools (merge, compress, passport...)"
-            className="w-full h-11 pl-10 pr-9 rounded-2xl bg-white border border-[#1B4D2E]/15 shadow-2xs text-xs text-[#191C1A] placeholder-[#707B72] focus:outline-hidden focus:border-[#1B4D2E]/40"
+            placeholder="Search document tools..."
+            aria-label="Search document tools"
+            className="w-full h-11 pl-10 pr-10 rounded-xl bg-white border border-[#E2E7E1] text-[13px] text-[#191C1A] placeholder-[#6B756D] focus:outline-none focus:border-[#194F34] transition-colors"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#707B72] p-1"
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-[#545D56] hover:text-[#191C1A]"
             >
-              <X className="w-3.5 h-3.5" />
+              <X size={15} weight="bold" />
             </button>
           )}
         </div>
 
-        {/* Search Results Filter (if user is searching) */}
+        {/* Filtered Results or Grouped Tool Sections */}
         {filteredTools ? (
-          <section className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs">
-            <h2 className="text-xs font-bold text-[#191C1A] mb-3">
+          <motion.section
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.15 }}
+            aria-label="Search results"
+            className="flex flex-col gap-2"
+          >
+            <span className="text-[12px] font-bold text-[#191C1A] px-1 tabular-nums">
               Matching Tools ({filteredTools.length})
-            </h2>
+            </span>
             {filteredTools.length > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
-                {filteredTools.map(renderToolButton)}
+              <div className="rounded-2xl bg-white border border-[#E2E7E1] divide-y divide-[#E2E7E1]/70 overflow-hidden">
+                {filteredTools.map(renderToolRow)}
               </div>
             ) : (
-              <p className="text-xs text-[#545D56] text-center py-4">
-                No tools matched &ldquo;{searchQuery}&rdquo;. Try &ldquo;pdf&rdquo;, &ldquo;image&rdquo;, or &ldquo;scan&rdquo;.
-              </p>
-            )}
-          </section>
-        ) : (
-          <>
-            {/* Featured Hero Banner: Full-Screen PDF Editor */}
-            <section
-              aria-label="Full-Screen PDF Editor"
-              className="p-4 rounded-3xl bg-gradient-to-br from-[#1B4D2E] via-[#225736] to-[#143B22] text-white shadow-md shadow-[#1B4D2E]/15 flex items-center justify-between gap-3 relative overflow-hidden"
-            >
-              <div className="flex flex-col gap-1 z-10 max-w-[220px]">
-                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-[10px] font-bold text-emerald-200 w-fit backdrop-blur-xs">
-                  <Sparkles className="w-3 h-3" />
-                  <span>Pro PDF Studio</span>
-                </div>
-                <h2 className="text-sm font-bold leading-tight">
-                  Full-Screen PDF Editor
-                </h2>
-                <p className="text-[11px] text-white/80 leading-normal">
-                  Rotate, delete, reorder, crop margins &amp; strip blank pages in live preview.
+              <div className="rounded-2xl bg-white border border-[#E2E7E1] py-8 px-4 text-center">
+                <p className="text-[13px] font-semibold text-[#191C1A]">
+                  No tools matched &ldquo;{searchQuery}&rdquo;
+                </p>
+                <p className="text-[12px] text-[#545D56] mt-1">
+                  Try &ldquo;merge&rdquo;, &ldquo;split&rdquo;, &ldquo;compress&rdquo;, or &ldquo;passport&rdquo;.
                 </p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  Haptics.buttonPress();
-                  setIsEditorOpen(true);
-                }}
-                className="z-10 px-3.5 py-2 rounded-xl bg-white text-[#1B4D2E] font-bold text-xs shadow-md active:scale-95 transition-all shrink-0 flex items-center gap-1"
-              >
-                <span>Open</span>
-                <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
-              </button>
-
-              <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/5 pointer-events-none" />
-            </section>
-
-            {/* Section 1: PDF Tools Card with "See All" */}
-            <section className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs">
-              <div className="flex items-center justify-between pb-3 mb-2 border-b border-black/[0.05]">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <FileText className="w-3.5 h-3.5 stroke-[2.2]" />
-                  </div>
-                  <h2 className="text-xs font-bold text-[#191C1A]">PDF Tools</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    Haptics.buttonPress();
-                    setShowAllPdfTools(true);
-                  }}
-                  className="text-[11px] font-bold text-[#1B4D2E] hover:underline"
-                >
-                  See All ({pdfTools.length})
-                </button>
-              </div>
-
-              {/* 4-Column Grid for Mobile */}
-              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                {pdfTools.slice(0, 8).map(renderToolButton)}
-              </div>
-            </section>
-
-            {/* Section 2: Image & Photo Tools Card */}
-            <section className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs">
-              <div className="flex items-center justify-between pb-3 mb-2 border-b border-black/[0.05]">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <FileImage className="w-3.5 h-3.5 stroke-[2.2]" />
-                  </div>
-                  <h2 className="text-xs font-bold text-[#191C1A]">
-                    Image &amp; Photo Tools
-                  </h2>
-                </div>
-                <span className="text-[10px] text-[#545D56] font-medium">
-                  {imageTools.length} Utilities
-                </span>
-              </div>
-
-              {/* 4-Column Grid */}
-              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                {imageTools.map(renderToolButton)}
-              </div>
-            </section>
-
-            {/* Section 3: Scan & Document Tools Card */}
-            <section className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs">
-              <div className="flex items-center justify-between pb-3 mb-2 border-b border-black/[0.05]">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <Camera className="w-3.5 h-3.5 stroke-[2.2]" />
-                  </div>
-                  <h2 className="text-xs font-bold text-[#191C1A]">
-                    Scan &amp; Document Tools
-                  </h2>
-                </div>
-                <span className="text-[10px] text-[#545D56] font-medium">
-                  Live Camera
-                </span>
-              </div>
-
-              {/* Grid */}
-              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                {scanTools.map(renderToolButton)}
-              </div>
-            </section>
-          </>
+            )}
+          </motion.section>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex flex-col gap-5"
+          >
+            {renderSection('PDF Tools', FileText, pdfTools)}
+            {renderSection('Image & Print Prep', FileImage, imageTools)}
+            {renderSection('Scan Tools', Camera, scanTools)}
+          </motion.div>
         )}
       </main>
 
-      {/* See All PDF Tools Modal Dialog */}
-      {showAllPdfTools && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
-          onClick={() => setShowAllPdfTools(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                  <FileText className="w-4 h-4 stroke-[2.2]" />
-                </div>
-                <h3 className="text-sm font-bold text-[#191C1A]">All PDF Utilities</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAllPdfTools(false)}
-                className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 overflow-y-auto py-2">
-              {pdfTools.map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => {
-                    setShowAllPdfTools(false);
-                    handleToolClick(tool.id);
-                  }}
-                  className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/5 hover:border-[#1B4D2E]/30 flex flex-col items-center text-center active:scale-95 transition-all"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center mb-1">
-                    <tool.icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[11px] font-bold text-[#191C1A] leading-tight">
-                    {tool.name}
-                  </span>
-                  <span className="text-[9px] text-[#545D56] mt-0.5 line-clamp-1">
-                    {tool.desc}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Individual Focused Tool Modal */}
+      {/* Focused Tool Modal */}
       <IndividualToolModal
         toolId={activeToolId}
         onClose={() => setActiveToolId(null)}
         onSendToPrint={(file) => {
-          onSendToPrint([file]);
-        }}
-      />
-
-      {/* Full-Screen PDF Editor */}
-      <FullScreenPdfEditor
-        isOpen={isEditorOpen}
-        onClose={() => setIsEditorOpen(false)}
-        onSaveAndPrint={(file) => {
-          setIsEditorOpen(false);
           onSendToPrint([file]);
         }}
       />

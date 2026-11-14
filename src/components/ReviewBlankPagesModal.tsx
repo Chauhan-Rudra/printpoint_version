@@ -5,18 +5,17 @@ import {
   Eye,
   CheckSquare,
   Square,
-  AlertTriangle,
+  Warning,
   FileText,
-  Sparkles,
-  Trash2,
-} from 'lucide-react';
+  Trash,
+} from '@phosphor-icons/react';
 import { BlankPageItem } from '../types/kiosk';
 import { triggerHaptic } from '../utils/haptics';
 
 interface ReviewBlankPagesModalProps {
   isOpen: boolean;
   detectedItems: BlankPageItem[];
-  selectedIndices: number[]; // indices in detectedItems selected for removal
+  selectedIndices: number[];
   onToggleIndex: (index: number) => void;
   onSelectAll: (select: boolean) => void;
   onJumpToPage: (docId: string, pageNumber: number) => void;
@@ -37,8 +36,7 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
   if (!isOpen) return null;
 
   const allSelected =
-    detectedItems.length > 0 &&
-    selectedIndices.length === detectedItems.length;
+    detectedItems.length > 0 && selectedIndices.length === detectedItems.length;
 
   const modalContent = (
     <div
@@ -46,36 +44,26 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
       aria-modal="true"
       aria-labelledby="review-blank-pages-title"
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto animate-fade-in"
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100dvh',
-      }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/55 backdrop-blur-[1px] overflow-y-auto animate-backdrop-fade"
     >
       <div
-        className="relative w-full max-w-md my-auto bg-white rounded-3xl shadow-2xl border border-black/[0.08] max-h-[85vh] flex flex-col overflow-hidden animate-apple-card"
+        className="relative w-full max-w-md my-auto bg-white rounded-2xl shadow-2xl border border-outline-variant/60 max-h-[85vh] flex flex-col overflow-hidden animate-view-enter"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-4 border-b border-black/[0.06] flex items-center justify-between bg-[#F8FAF9]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#EAF3EC] text-[#1B4D2E] flex items-center justify-center shadow-2xs">
-              <Sparkles className="w-4 h-4 stroke-[2.2]" />
+        <div className="p-4 border-b border-outline-variant/40 flex items-center justify-between bg-[#F8FAF8]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#EAF3ED] text-[#194F34] flex items-center justify-center shrink-0">
+              <FileText size={18} weight="duotone" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3
                 id="review-blank-pages-title"
-                className="text-[15px] font-bold text-[#141A16] leading-tight"
+                className="text-[15px] font-bold text-on-surface leading-tight"
               >
                 Review Blank Pages
               </h3>
-              <p className="text-[11.5px] text-[#5A645D] leading-tight">
-                Inspect pages and exclude any you wish to keep in print
+              <p className="text-[11.5px] text-on-surface-variant leading-tight truncate">
+                Select pages to exclude before printing
               </p>
             </div>
           </div>
@@ -87,16 +75,15 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
               onClose();
             }}
             aria-label="Close review dialog"
-            className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-[#556058] transition-colors"
+            className="w-9 h-9 rounded-lg hover:bg-surface-container-low flex items-center justify-center text-on-surface-variant transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X size={16} weight="bold" />
           </button>
         </div>
 
-        {/* Quick select toolbar */}
-        <div className="px-4 py-2 bg-[#F1F6F2] border-b border-black/[0.04] flex items-center justify-between text-[11.5px]">
-          <span className="text-[#455047] font-medium">
-            {selectedIndices.length} of {detectedItems.length} selected for removal
+        <div className="px-4 py-2.5 bg-[#F1F6F2] border-b border-outline-variant/30 flex items-center justify-between text-[12px]">
+          <span className="text-on-surface-variant font-medium tabular-nums">
+            {selectedIndices.length} of {detectedItems.length} selected
           </span>
           <button
             type="button"
@@ -104,14 +91,13 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
               triggerHaptic('selection');
               onSelectAll(!allSelected);
             }}
-            className="text-[#1B4D2E] font-bold hover:underline"
+            className="text-[#194F34] font-bold hover:underline min-h-[32px] px-1"
           >
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
         </div>
 
-        {/* List of detected pages */}
-        <div className="p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-black/[0.04]">
+        <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
           {detectedItems.map((item, idx) => {
             const isSelected = selectedIndices.includes(idx);
             const isReviewNeeded = item.confidence === 'needs_review';
@@ -119,14 +105,13 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
             return (
               <div
                 key={`${item.documentId}-p${item.pageNumber}-${idx}`}
-                className={`pt-2.5 first:pt-0 rounded-xl p-2.5 transition-all ${
+                className={`rounded-xl p-3 border transition-all ${
                   isSelected
-                    ? 'bg-[#F2F8F4] border border-[#1B4D2E]/20'
-                    : 'bg-white border border-black/[0.06] opacity-75'
+                    ? 'bg-[#F2F8F4] border-[#194F34]/30'
+                    : 'bg-white border-outline-variant/45 opacity-80'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  {/* Selection Checkbox */}
                   <button
                     type="button"
                     onClick={() => {
@@ -135,53 +120,47 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
                     }}
                     className="flex items-start gap-2.5 flex-1 text-left min-w-0"
                   >
-                    <div className="mt-0.5 text-[#1B4D2E] shrink-0">
+                    <div className="mt-0.5 text-[#194F34] shrink-0">
                       {isSelected ? (
-                        <CheckSquare className="w-5 h-5 fill-[#1B4D2E] text-white" />
+                        <CheckSquare size={20} weight="fill" />
                       ) : (
-                        <Square className="w-5 h-5 text-black/30" />
+                        <Square size={20} weight="regular" className="text-outline" />
                       )}
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[13px] font-bold text-[#141A16]">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13px] font-bold text-on-surface tabular-nums">
                           Page {item.pageNumber}
                         </span>
-                        {isReviewNeeded ? (
-                          <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 flex items-center gap-1">
-                            <AlertTriangle className="w-2.5 h-2.5" />
-                            Needs Review
-                          </span>
-                        ) : (
-                          <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-[#EAF3EC] text-[#1B4D2E]">
-                            Empty Page
-                          </span>
-                        )}
+                        <span className="text-[11px] font-semibold text-on-surface-variant flex items-center gap-1">
+                          {isReviewNeeded && (
+                            <Warning size={12} weight="fill" className="text-amber-700" />
+                          )}
+                          {isReviewNeeded ? 'Low ink · Review' : 'Empty page'}
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-1 text-[11px] text-[#556058] truncate mt-0.5">
-                        <FileText className="w-3 h-3 text-[#1B4D2E]/60 shrink-0" />
+                      <div className="flex items-center gap-1 text-[11px] text-on-surface-variant truncate mt-0.5">
                         <span className="truncate">{item.documentName}</span>
                       </div>
 
-                      <p className="text-[10.5px] text-[#717E75] leading-tight mt-1">
+                      <p className="text-[10.5px] text-on-surface-variant/85 leading-tight mt-1">
                         {item.reason}
                       </p>
                     </div>
                   </button>
 
-                  {/* Jump to Page in Preview Button */}
                   <button
                     type="button"
-                    title="Jump to this page in preview"
+                    title="View page in preview"
                     onClick={() => {
                       triggerHaptic('selection');
                       onJumpToPage(item.documentId, item.pageNumber);
                     }}
-                    className="px-2 py-1 rounded-lg bg-white border border-black/10 hover:border-[#1B4D2E] text-[#1B4D2E] text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs active:scale-95 transition-all"
+                    className="min-h-[36px] px-2.5 rounded-lg bg-white border border-outline-variant/60 hover:border-[#194F34] text-[#194F34] text-[11.5px] font-bold flex items-center gap-1 shrink-0 active:scale-95 transition-all"
                   >
-                    <Eye className="w-3 h-3" />
+                    <Eye size={13} weight="bold" />
                     <span>View</span>
                   </button>
                 </div>
@@ -190,17 +169,16 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
           })}
         </div>
 
-        {/* Footer actions */}
-        <div className="p-3.5 border-t border-black/[0.06] bg-[#F8FAF9] grid grid-cols-2 gap-2.5">
+        <div className="p-3.5 border-t border-outline-variant/40 bg-[#F8FAF8] grid grid-cols-2 gap-2.5">
           <button
             type="button"
             onClick={() => {
               triggerHaptic('selection');
               onClose();
             }}
-            className="h-10 rounded-xl border border-black/15 bg-white text-[#333D36] text-[12.5px] font-semibold hover:bg-neutral-50 active:scale-[0.98] transition-all flex items-center justify-center shadow-2xs"
+            className="min-h-[44px] rounded-xl border border-outline-variant/70 bg-white text-on-surface text-[12.5px] font-semibold hover:bg-surface-container-low active:scale-[0.98] transition-all"
           >
-            Keep All Pages
+            Keep All
           </button>
 
           <button
@@ -210,9 +188,9 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
               onProceedToRemove();
             }}
             disabled={selectedIndices.length === 0}
-            className="h-10 rounded-xl bg-[#1B4D2E] text-white text-[12.5px] font-bold hover:bg-[#153D24] shadow-[0_2px_8px_rgba(27,77,46,0.22)] active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-1.5"
+            className="min-h-[44px] rounded-xl bg-[#194F34] text-white text-[12.5px] font-bold hover:bg-[#143E29] active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-1.5 tabular-nums"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash size={14} weight="bold" />
             <span>Remove ({selectedIndices.length})</span>
           </button>
         </div>
@@ -220,9 +198,7 @@ export const ReviewBlankPagesModal: React.FC<ReviewBlankPagesModalProps> = ({
     </div>
   );
 
-  if (typeof document !== 'undefined') {
-    return createPortal(modalContent, document.body);
-  }
-
-  return modalContent;
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 };

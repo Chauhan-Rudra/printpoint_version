@@ -1,0 +1,135 @@
+{
+  "projectId": "printingkiosk-1e1b7",
+  "database": "(default)",
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Print Point customer profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "language": { "type": "string", "enum": ["English", "ગુજરાતી", "हिन्दी"] },
+        "notificationsEnabled": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["user"] },
+        "joinedDate": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["uid", "name", "email", "role", "joinedDate"]
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "Server-authoritative Print Point wallet balance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "balanceInr": { "type": "number" },
+        "currency": { "type": "string", "enum": ["INR"] },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["uid", "balanceInr", "currency", "updatedAt"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Append-only wallet credit/debit/refund ledger entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "type": { "type": "string", "enum": ["credit", "debit", "refund"] },
+        "amountInr": { "type": "number" },
+        "balanceAfterInr": { "type": "number" },
+        "title": { "type": "string" },
+        "referenceId": { "type": "string" },
+        "idempotencyKey": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "uid", "type", "amountInr", "balanceAfterInr", "idempotencyKey", "createdAt"]
+    },
+    "KioskStation": {
+      "title": "KioskStation",
+      "description": "Physical Windows kiosk station metadata and pricing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "online": { "type": "boolean" },
+        "bwRateInr": { "type": "number" },
+        "colourRateInr": { "type": "number" },
+        "bwDuplexSheetInr": { "type": "number" },
+        "colourDuplexSheetInr": { "type": "number" }
+      },
+      "required": ["id", "name", "location", "online", "bwRateInr", "colourRateInr"]
+    },
+    "KioskSession": {
+      "title": "KioskSession",
+      "description": "QR pairing session token issued by a kiosk and bound to a mobile user",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "stationId": { "type": "string" },
+        "kioskName": { "type": "string" },
+        "boundUid": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "paired", "expired", "revoked"] },
+        "createdAt": { "type": "number" },
+        "expiresAt": { "type": "number" },
+        "pairedAt": { "type": "number" }
+      },
+      "required": ["token", "stationId", "status", "createdAt", "expiresAt"]
+    },
+    "PrintDocument": {
+      "title": "PrintDocument",
+      "description": "Uploaded and converted printable PDF document metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "stationId": { "type": "string" },
+        "sessionToken": { "type": "string" },
+        "name": { "type": "string" },
+        "sizeBytes": { "type": "number" },
+        "pageCount": { "type": "number" },
+        "blankPages": { "type": "array", "items": { "type": "number" } },
+        "storagePath": { "type": "string" },
+        "status": { "type": "string" },
+        "expiresAt": { "type": "number" }
+      },
+      "required": ["id", "uid", "stationId", "sessionToken", "name", "pageCount", "storagePath"]
+    },
+    "PrintOrder": {
+      "title": "PrintOrder",
+      "description": "Verified print job order queued for a specific kiosk with 4-digit release PIN",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "stationId": { "type": "string" },
+        "kioskName": { "type": "string" },
+        "releaseCode": { "type": "string" },
+        "documentCount": { "type": "number" },
+        "totalPages": { "type": "number" },
+        "totalSheets": { "type": "number" },
+        "amountInr": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string", "enum": ["Queued", "Claimed", "Printing", "Printed", "Failed", "Refunded"] },
+        "idempotencyKey": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "expiresAt": { "type": "number" }
+      },
+      "required": ["id", "uid", "stationId", "releaseCode", "amountInr", "status", "idempotencyKey", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "UserProfile", "description": "User profile documents" },
+    "/wallets/{uid}": { "schema": "Wallet", "description": "Authoritative user wallet" },
+    "/wallets/{uid}/transactions/{txId}": { "schema": "WalletTransaction", "description": "Wallet transaction ledger" },
+    "/kioskStations/{stationId}": { "schema": "KioskStation", "description": "Kiosk stations and rate cards" },
+    "/kioskSessions/{token}": { "schema": "KioskSession", "description": "QR pairing sessions" },
+    "/printDocuments/{docId}": { "schema": "PrintDocument", "description": "Uploaded print documents" },
+    "/printOrders/{orderId}": { "schema": "PrintOrder", "description": "Verified print job orders" }
+  }
+}

@@ -1,53 +1,107 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { validateKioskQrCode } from './kioskQrValidator';
+import { markSessionTokenUsed } from './kioskSession';
 
 describe('Kiosk QR Code Validation', () => {
-  it('validates a standard kiosk URL and extracts station id', () => {
-    const result = validateKioskQrCode('https://kiosk.creator4lab.com/session?kiosk=04&token=tok_xyz');
+  const futureMs = Date.now() + 10 * 60 * 1000;
+  const pastMs = Date.now() - 60 * 1000;
+
+  it('validates a standard active kiosk URL with station id and session token', () => {
+    const result = validateKioskQrCode(
+      `https://kiosk.printpoint.app/session?kiosk=04&token=sess_active_001&exp=${futureMs}`
+    );
     assert.strictEqual(result.valid, true);
     assert.strictEqual(result.kioskId, 'Kiosk #04');
-    assert.strictEqual(result.sessionToken, 'tok_xyz');
+    assert.strictEqual(result.sessionToken, 'sess_active_001');
   });
 
-  it('validates JSON kiosk pairing payload', () => {
+  it('validates a JSON kiosk pairing payload with active token and expiry', () => {
     const payload = JSON.stringify({
       kioskId: '04',
       kioskName: 'Kiosk #04',
-      token: 'c4_session_99',
-      location: 'Ground Floor Hub',
+      sessionToken: 'sess_json_9912',
+      location: 'Main Library Lobby',
+      expiresAt: futureMs,
+      active: true,
     });
     const result = validateKioskQrCode(payload);
     assert.strictEqual(result.valid, true);
     assert.strictEqual(result.kioskId, 'Kiosk #04');
-    assert.strictEqual(result.sessionToken, 'c4_session_99');
-    assert.strictEqual(result.location, 'Ground Floor Hub');
+    assert.strictEqual(result.sessionToken, 'sess_json_9912');
+    assert.strictEqual(result.location, 'Main Library Lobby');
   });
 
-  it('validates formatted direct kiosk strings', () => {
-    const res1 = validateKioskQrCode('KIOSK-04');
-    assert.strictEqual(res1.valid, true);
-    assert.strictEqual(res1.kioskId, 'Kiosk #04');
-
-    const res2 = validateKioskQrCode('C4-KIOSK-04');
-    assert.strictEqual(res2.valid, true);
-    assert.strictEqual(res2.kioskId, 'Kiosk #04');
-
-    const res3 = validateKioskQrCode('Kiosk #04');
-    assert.strictEqual(res3.valid, true);
-    assert.strictEqual(res3.kioskId, 'Kiosk #04');
+  it('validates structured colon-delimited kiosk session payload', () => {
+    const result = validateKioskQrCode(`PRINTPOINT:KIOSK-07:tok_live_7788:${futureMs}`);
+    assert.strictEqual(result.valid, true);
+    assert.strictEqual(result.kioskId, 'Kiosk #07');
+    assert.strictEqual(result.sessionToken, 'tok_live_7788');
   });
 
-  it('rejects arbitrary non-kiosk QR codes with helpful error message', () => {
-    const res1 = validateKioskQrCode('https://random-website.org/unrelated-page');
-    assert.strictEqual(res1.valid, false);
-    assert.ok(res1.error?.includes('not a Creator4 Lab Kiosk station'));
+  it('rejects expired kiosk sessions', () => {
+    const expiredUrl = validateKioskQrCode(
+      `https://kiosk.printpoint.app/session?kiosk=04&token=sess_old_111&exp=${pastMs}`
+    );
+    assert.strictEqual(expiredUrl.valid, false);
+    assert.strictEqual(expiredUrl.reason, 'expired');
 
-    const res2 = validateKioskQrCode('WIFI:S:MyWifi;T:WPA;P:secret;;');
-    assert.strictEqual(res2.valid, false);
-    assert.ok(res2.error?.includes('not a Creator4 Lab Kiosk station'));
+    const expiredJson = validateKioskQrCode(
+      JSON.stringify({
+        kioskId: '04',
+        token: 'sess_old_222',
+        status: 'expired',
+      })
+    );
+    assert.strictEqual(expiredJson.valid, false);
+    assert.strictEqual(expiredJson.reason, 'expired');
+  });
 
-    const res3 = validateKioskQrCode('');
-    assert.strictEqual(res3.valid, false);
+  it('rejects already-used and inactive session tokens', () => {
+    const usedPayload = validateKioskQrCode(
+      JSON.stringify({
+        kioskId: '04',
+        token: 'sess_used_flag_1',
+        used: true,
+      })
+    );
+    assert.strictEqual(usedPayload.valid, false);
+    assert.strictEqual(usedPayload.reason, 'already_used');
+
+    markSessionTokenUsed('sess_consumed_abc123');
+    const reused = validateKioskQrCode(
+      `https://kiosk.printpoint.app/session?kiosk=04&token=sess_consumed_abc123&exp=${futureMs}`
+    );
+    assert.strictEqual(reused.valid, false);
+    assert.strictEqual(reused.reason, 'already_used');
+
+    const inactive = validateKioskQrCode(
+      JSON.stringify({
+        kioskId: '04',
+        token: 'sess_inactive_99',
+        active: false,
+      })
+    );
+    assert.strictEqual(inactive.valid, false);
+    assert.strictEqual(inactive.reason, 'inactive');
+  });
+
+  it('rejects bare kiosk IDs without session tokens and arbitrary unrelated QR codes', () => {
+    const bareId = validateKioskQrCode('KIOSK-04');
+    assert.strictEqual(bareId.valid, false);
+
+    const noTokenUrl = validateKioskQrCode('https://kiosk.printpoint.app/session?kiosk=04');
+    assert.strictEqual(noTokenUrl.valid, false);
+    assert.strictEqual(noTokenUrl.reason, 'missing_token');
+
+    const randomUrl = validateKioskQrCode('https://example.com/?id=04');
+    assert.strictEqual(randomUrl.valid, false);
+    assert.strictEqual(randomUrl.reason, 'invalid_format');
+
+    const wifiQr = validateKioskQrCode('WIFI:S:MyWifi;T:WPA;P:secret;;');
+    assert.strictEqual(wifiQr.valid, false);
+
+    const emptyQr = validateKioskQrCode('');
+    assert.strictEqual(emptyQr.valid, false);
   });
 });

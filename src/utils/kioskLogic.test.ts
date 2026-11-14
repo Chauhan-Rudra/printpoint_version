@@ -17,6 +17,9 @@ import {
   calculateLivePrintEstimate,
   formatInrCurrency,
   buildDocumentPageContent,
+  validateAndDeduplicateFiles,
+  buildKioskStoragePath,
+  getFileTypeShortLabel,
 } from './kioskLogic';
 import { UploadedPrintDocument } from '../types/kiosk';
 
@@ -124,10 +127,13 @@ test('validateSelectedFile accepts all supported extensions and rejects unsuppor
     'photo.jpeg',
     'scan.png',
     'readme.txt',
+    'export.csv',
   ];
   for (const name of supportedSamples) {
     assert.equal(validateSelectedFile(name, 1024).valid, true, `Should accept ${name}`);
   }
+  assert.equal(detectFileFormatKind('export.csv'), 'excel');
+  assert.equal(getFileTypeShortLabel('export.csv'), 'CSV');
 
   const badExt = validateSelectedFile('archive.zip', 2048);
   assert.equal(badExt.valid, false);
@@ -288,5 +294,66 @@ test('calculateLivePrintEstimate detects blank pages and calculates paper and mo
   assert.equal(estimateWithoutRemoval.estimatedTotalInr, 14);
   assert.equal(estimateWithoutRemoval.removedBlankPagesSavedInr, 0);
 });
+
+test('validateAndDeduplicateFiles rejects duplicates and invalid files while keeping valid files', () => {
+  const existingFile = new File(['hello'], 'Syllabus.pdf', {
+    type: 'application/pdf',
+    lastModified: 1700000000000,
+  });
+
+  const existingDocs: UploadedPrintDocument[] = [
+    {
+      id: 'doc-existing',
+      orderIndex: 0,
+      name: existingFile.name,
+      sizeBytes: existingFile.size,
+      lastModified: existingFile.lastModified,
+      pageCount: 1,
+      progressPercent: 100,
+      status: 'Ready',
+      rawFile: existingFile,
+      settings: { colourMode: 'bw', sides: '1-sided', copies: 1, removeBlankPages: true },
+    },
+  ];
+
+  const dupExisting = new File(['hello'], 'Syllabus.pdf', {
+    type: 'application/pdf',
+    lastModified: 1700000000000,
+  });
+  const csvValid = new File(['col1,col2\n1,2'], 'Grades.csv', {
+    type: 'text/csv',
+    lastModified: 1700000000100,
+  });
+  const dupWithinBatch = new File(['col1,col2\n1,2'], 'Grades.csv', {
+    type: 'text/csv',
+    lastModified: 1700000000100,
+  });
+  const emptyFile = new File([], 'Empty.pdf', { type: 'application/pdf' });
+  const unsupportedFile = new File(['abc'], 'Installer.exe', { type: 'application/octet-stream' });
+
+  const outcome = validateAndDeduplicateFiles(
+    [dupExisting, csvValid, dupWithinBatch, emptyFile, unsupportedFile],
+    existingDocs
+  );
+
+  assert.equal(outcome.validFiles.length, 1);
+  assert.equal(outcome.validFiles[0].name, 'Grades.csv');
+  assert.deepEqual(outcome.duplicateFiles, ['Syllabus.pdf', 'Grades.csv']);
+  assert.equal(outcome.errors.length, 4);
+});
+
+test('buildKioskStoragePath builds kiosk and session-scoped paths safely', () => {
+  const path = buildKioskStoragePath(
+    'kiosk-04',
+    'tok_abc123',
+    'doc-10',
+    'Final Report (v2).pdf'
+  );
+  assert.equal(
+    path,
+    'kiosks/kiosk-04/sessions/tok_abc123/doc-10_Final_Report__v2_.pdf'
+  );
+});
+
 
 

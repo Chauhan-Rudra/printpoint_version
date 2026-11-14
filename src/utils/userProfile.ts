@@ -4,8 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
+import type { User } from 'firebase/auth';
+import { getFirebaseIdToken, subscribeFirebaseAuthState } from '../firebase';
 
 export interface UserProfile {
+  uid?: string;
   name: string;
   email: string;
   phone: string;
@@ -14,18 +17,21 @@ export interface UserProfile {
   language: 'English' | 'ગુજરાતી' | 'हिन्दी';
   notificationsEnabled: boolean;
   joinedDate: string;
+  authenticated?: boolean;
 }
 
-const STORAGE_KEY = 'printpoint_user_profile';
+const STORAGE_KEY = 'printpoint_user_profile_v2';
 
 const DEFAULT_PROFILE: UserProfile = {
-  name: 'Rudra Chauhan',
-  email: 'upskilling589@gmail.com',
-  phone: '+91 98765 43210',
-  initials: 'RC',
+  uid: undefined,
+  name: '',
+  email: '',
+  phone: '',
+  initials: 'U',
   language: 'English',
   notificationsEnabled: true,
-  joinedDate: 'November 2026',
+  joinedDate: '',
+  authenticated: false,
 };
 
 function computeInitials(name: string): string {
@@ -35,21 +41,23 @@ function computeInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+let memoryProfile: UserProfile = { ...DEFAULT_PROFILE };
+
 export function getUserProfile(): UserProfile {
   if (typeof localStorage === 'undefined') {
-    return DEFAULT_PROFILE;
+    return memoryProfile;
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_PROFILE;
-    const parsed = JSON.parse(raw);
+    if (!raw) return memoryProfile;
+    const parsed = JSON.parse(raw) as Partial<UserProfile>;
     return {
       ...DEFAULT_PROFILE,
       ...parsed,
-      initials: computeInitials(parsed.name || DEFAULT_PROFILE.name),
+      initials: computeInitials(parsed.name || ''),
     };
   } catch {
-    return DEFAULT_PROFILE;
+    return memoryProfile;
   }
 }
 
@@ -61,6 +69,8 @@ export function saveUserProfile(updates: Partial<UserProfile>): UserProfile {
     ...updates,
     initials: computeInitials(nextName),
   };
+
+  memoryProfile = updated;
 
   if (typeof localStorage !== 'undefined') {
     try {
@@ -74,7 +84,8 @@ export function saveUserProfile(updates: Partial<UserProfile>): UserProfile {
   return updated;
 }
 
-export function resetUserProfile(): UserProfile {
+export function clearUserProfile(): UserProfile {
+  memoryProfile = { ...DEFAULT_PROFILE };
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -83,7 +94,97 @@ export function resetUserProfile(): UserProfile {
       // Ignore localStorage errors
     }
   }
-  return DEFAULT_PROFILE;
+  return memoryProfile;
+}
+
+export function resetUserProfile(): UserProfile {
+  return clearUserProfile();
+}
+
+export function syncProfileFromFirebaseUser(firebaseUser: User | null): UserProfile {
+  if (!firebaseUser) {
+    return clearUserProfile();
+  }
+  const current = getUserProfile();
+  const sameUid = current.uid === firebaseUser.uid;
+  const displayName =
+    (sameUid && current.name ? current.name : '') ||
+    firebaseUser.displayName ||
+    firebaseUser.email?.split('@')[0] ||
+    'Print Point User';
+  return saveUserProfile({
+    uid: firebaseUser.uid,
+    name: displayName,
+    email: firebaseUser.email || current.email || '',
+    avatarUrl: firebaseUser.photoURL || (sameUid ? current.avatarUrl : undefined),
+    phone: sameUid ? current.phone : '',
+    joinedDate:
+      (sameUid && current.joinedDate) ||
+      new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+    authenticated: true,
+  });
+}
+
+export async function fetchAndSyncBackendProfile(): Promise<UserProfile | null> {
+  const token = await getFirebaseIdToken();
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { profile?: Partial<UserProfile> & { photoURL?: string } };
+    if (!data.profile) return null;
+    return saveUserProfile({
+      uid: data.profile.uid,
+      name: data.profile.name,
+      email: data.profile.email,
+      phone: data.profile.phone || '',
+      avatarUrl: data.profile.photoURL || data.profile.avatarUrl,
+      language: data.profile.language || 'English',
+      notificationsEnabled: data.profile.notificationsEnabled ?? true,
+      joinedDate: data.profile.joinedDate || '',
+      authenticated: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function persistProfileToBackend(updates: Partial<UserProfile>): Promise<UserProfile> {
+  const savedLocal = saveUserProfile(updates);
+  const token = await getFirebaseIdToken();
+  if (!token) return savedLocal;
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: savedLocal.name,
+        phone: savedLocal.phone,
+        photoURL: savedLocal.avatarUrl,
+        language: savedLocal.language,
+        notificationsEnabled: savedLocal.notificationsEnabled,
+      }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { profile?: Partial<UserProfile> & { photoURL?: string } };
+      if (data.profile) {
+        return saveUserProfile({
+          ...data.profile,
+          avatarUrl: data.profile.photoURL || savedLocal.avatarUrl,
+          authenticated: true,
+        });
+      }
+    }
+  } catch {
+    // Keep local saved state on offline network error
+  }
+  return savedLocal;
 }
 
 export function useUserProfile(): {
@@ -101,9 +202,19 @@ export function useUserProfile(): {
     window.addEventListener('printpoint:profile_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
+    const unsubscribeAuth = subscribeFirebaseAuthState((user) => {
+      if (user) {
+        syncProfileFromFirebaseUser(user);
+        void fetchAndSyncBackendProfile();
+      } else {
+        clearUserProfile();
+      }
+    });
+
     return () => {
       window.removeEventListener('printpoint:profile_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      unsubscribeAuth();
     };
   }, []);
 
@@ -112,6 +223,7 @@ export function useUserProfile(): {
     updateProfile: (updates: Partial<UserProfile>) => {
       const next = saveUserProfile(updates);
       setProfile(next);
+      void persistProfileToBackend(updates);
     },
     resetProfile: () => {
       const reset = resetUserProfile();

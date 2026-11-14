@@ -20,6 +20,24 @@ export type DocumentProcessingStatus =
   | 'Ready'
   | 'Failed';
 
+export type ProcessingStageId =
+  | 'uploading'
+  | 'validating'
+  | 'converting'
+  | 'preparing'
+  | 'ready'
+  | 'failed';
+
+export type ProcessingErrorCode =
+  | 'interrupted'
+  | 'unsupported'
+  | 'corrupted'
+  | 'password-protected'
+  | 'conversion-failed'
+  | 'storage-failed'
+  | 'network-offline'
+  | 'session-expired';
+
 export type UploadVisualState =
   | 'Waiting'
   | 'Uploading'
@@ -87,6 +105,8 @@ export interface UploadedPrintDocument {
   orderIndex: number;
   name: string;
   sizeBytes: number;
+  uploadedBytes?: number;
+  lastModified?: number;
   pageCount: number;
   originalPageCount?: number;
   blankPages?: number[];
@@ -95,10 +115,32 @@ export interface UploadedPrintDocument {
   isAnalyzingBlanks?: boolean;
   progressPercent: number;
   status: DocumentProcessingStatus;
+  processingStage?: ProcessingStageId;
+  errorCode?: ProcessingErrorCode;
   errorMessage?: string;
+  retryable?: boolean;
+  requiresConversion?: boolean;
+  pageScanProgress?: { current: number; total: number };
   rawFile?: File;
   originalFile?: File;
+  convertedPdfFile?: File;
+  conversionStatus?:
+    | 'native-pdf'
+    | 'converted'
+    | 'conversion-required'
+    | 'failed';
+  conversionError?: string;
+  pageRotations?: Record<number, number>;
+  removedPages?: number[];
+  keptBlankPages?: number[];
   modifiedLabel?: string;
+  storagePath?: string;
+  serverDocId?: string;
+  convertedPdfUrl?: string;
+  expiresAt?: number;
+  kioskId?: string;
+  kioskName?: string;
+  sessionToken?: string;
   settings: PrintDocumentSettings;
 }
 

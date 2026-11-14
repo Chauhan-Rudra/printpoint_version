@@ -64,6 +64,14 @@ export const Creator4Logo: React.FC<Creator4LogoProps> = ({
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!onClick) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <div
       className={`inline-flex items-center gap-2.5 select-none ${className}`}
@@ -71,18 +79,19 @@ export const Creator4Logo: React.FC<Creator4LogoProps> = ({
     >
       {/* Exact Unmodified Logo Container */}
       <div
-        className={`relative shrink-0 ${cfg.box} aspect-square overflow-hidden shadow-2xs border border-black/[0.08] transition-transform duration-200 ${
+        className={`relative shrink-0 ${cfg.box} aspect-square overflow-hidden shadow-2xs border border-black/[0.08] transition-transform duration-150 ${
           interactive && onClick
-            ? 'cursor-pointer hover:scale-[1.04] active:scale-95'
+            ? 'cursor-pointer hover:scale-[1.03] active:scale-95'
             : ''
         }`}
         role={onClick ? 'button' : undefined}
         tabIndex={onClick ? 0 : undefined}
-        aria-label="the Creato4 Lab Logo"
+        onKeyDown={handleKeyDown}
+        aria-label="Print Point Home"
       >
         <img
           src={CREATOR_LAB_LOGO_SRC}
-          alt="the Creato4 Lab"
+          alt="Print Point"
           className="w-full h-full object-cover object-center block"
           loading="eager"
           decoding="async"
@@ -92,14 +101,11 @@ export const Creator4Logo: React.FC<Creator4LogoProps> = ({
       {/* Optional Wordmark Pair */}
       {showWordmark && (
         <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`${cfg.textSize} font-black text-[#191C1A] tracking-tight leading-tight truncate`}
-            >
-              Print <span className="text-[#1B4D2E]">Point</span>
-            </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-          </div>
+          <span
+            className={`${cfg.textSize} font-bold text-[#191C1A] tracking-tight leading-tight truncate`}
+          >
+            Print <span className="text-[#194F34]">Point</span>
+          </span>
           {subtitle && (
             <span
               className={`${cfg.subSize} text-[#545D56] font-medium leading-tight truncate mt-0.5`}

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @theme {
+  /* Existing Brand & Material Surface Tokens (Preserved) */
   --color-inverse-on-surface: #f0f1ed;
   --color-on-background: #191c1a;
   --color-error-container: #ffdad6;
@@ -49,6 +50,44 @@
   --color-on-primary-fixed: #00210e;
   --color-on-tertiary-fixed: #1c1c17;
 
+  /* Standardised Print Point Semantic Colour Tokens */
+  --color-pp-brand: #194f34;
+  --color-pp-brand-hover: #143f2a;
+  --color-pp-brand-active: #0f3120;
+  --color-pp-brand-deep: #00361a;
+  --color-pp-brand-secondary: #2c694e;
+  --color-pp-brand-tint: #eaf3ed;
+  --color-pp-brand-tint-hover: #ddece2;
+  --color-pp-brand-surface: #f4f8f5;
+
+  --color-pp-bg: #f8faf6;
+  --color-pp-card: #ffffff;
+  --color-pp-card-subtle: #f3f4f0;
+  --color-pp-text-primary: #191c1a;
+  --color-pp-text-secondary: #545d56;
+  --color-pp-text-muted: #626e65;
+  --color-pp-border: #d5ddd7;
+  --color-pp-border-subtle: #e5ebe6;
+  --color-pp-divider: #e4eae5;
+
+  --color-pp-success: #194f34;
+  --color-pp-success-bg: #eaf3ed;
+  --color-pp-success-border: #b8d6c2;
+  --color-pp-warning: #92400e;
+  --color-pp-warning-icon: #d97706;
+  --color-pp-warning-bg: #fffbeb;
+  --color-pp-warning-border: #fde68a;
+  --color-pp-error: #ba1a1a;
+  --color-pp-error-text: #93000a;
+  --color-pp-error-bg: #fff1f2;
+  --color-pp-error-border: #fecdd3;
+  --color-pp-info: #1e4e68;
+  --color-pp-info-bg: #eff6fa;
+  --color-pp-info-border: #cde1ec;
+  --color-pp-disabled-bg: #e1e3df;
+  --color-pp-disabled-text: #6e7770;
+
+  /* Spacing & Radius Scale */
   --spacing-space-md: 1.25rem;
   --spacing-gutter: 1.5rem;
   --spacing-space-sm: 0.75rem;
@@ -59,6 +98,14 @@
   --spacing-margin-kiosk: 3rem;
   --spacing-margin: 1.5rem;
 
+  --radius-pp-sm: 0.5rem;
+  --radius-pp-md: 0.75rem;
+  --radius-pp-lg: 1rem;
+  --radius-pp-xl: 1.25rem;
+  --radius-pp-sheet: 1.5rem;
+
+  /* Typography Families & Scale */
+  --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-headline-md: "Plus Jakarta Sans", sans-serif;
   --font-headline-xl-mobile: "Plus Jakarta Sans", sans-serif;
   --font-headline-lg: "Plus Jakarta Sans", sans-serif;
@@ -148,6 +195,15 @@
   body {
     overscroll-behavior-y: none;
     min-height: 100dvh;
+    overflow-x: hidden;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #194f34;
+    outline-offset: 2px;
   }
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -155,10 +211,103 @@
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .pp-text-page-heading {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-pp-text-primary);
+    text-wrap: balance;
+  }
+  .pp-text-section-heading {
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-pp-text-primary);
+  }
+  .pp-text-card-heading {
+    font-size: 14.5px;
+    line-height: 20px;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    color: var(--color-pp-text-primary);
+  }
+  .pp-text-body {
+    font-size: 14px;
+    line-height: 21px;
+    font-weight: 400;
+    color: var(--color-pp-text-primary);
+  }
+  .pp-text-secondary {
+    font-size: 13px;
+    line-height: 19px;
+    font-weight: 400;
+    color: var(--color-pp-text-secondary);
+  }
+  .pp-text-label {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--color-pp-text-secondary);
+  }
+  .pp-text-button {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+  }
+  .pp-text-financial {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-pp-text-primary);
+  }
+  .pp-text-doc-meta {
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-pp-text-muted);
+  }
 }
 
 ::-webkit-scrollbar {
   display: none;
+}
+
+@keyframes viewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-view-enter {
+  animation: viewEnter 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes modalBackdropFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-backdrop-fade {
+  animation: modalBackdropFade 0.18s ease-out forwards;
 }
 
 @keyframes float {
@@ -519,7 +668,24 @@
   animation: ctaSheen 4.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
+@keyframes ppIndeterminateBar {
+  0% {
+    transform: translateX(-100%) scaleX(0.35);
+  }
+  50% {
+    transform: translateX(45%) scaleX(0.55);
+  }
+  100% {
+    transform: translateX(220%) scaleX(0.35);
+  }
+}
+.animate-pp-indeterminate {
+  animation: ppIndeterminateBar 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-view-enter,
+  .animate-backdrop-fade,
   .animate-float,
   .animate-fade-in-up,
   .animate-scan-beam,
@@ -546,9 +712,13 @@
   .animate-paper-left,
   .animate-paper-right,
   .animate-cta-sheen,
+  .animate-pp-indeterminate,
   .animate-pulse {
     animation: none !important;
     transition: none !important;
+  }
+  .animate-pp-indeterminate {
+    transform: translateX(0) scaleX(0.6) !important;
   }
   .animate-gpay-check {
     stroke-dashoffset: 0 !important;

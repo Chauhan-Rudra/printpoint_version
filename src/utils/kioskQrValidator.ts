@@ -1,124 +1,267 @@
 /**
- * Creator4 Lab - Kiosk QR Code Validation & Session Extractor
- * Validates physical kiosk QR codes and extracts station pairing credentials.
+ * Print Point - Kiosk QR Code Validation & Session Extractor
+ * Validates physical kiosk QR codes strictly for station ID, active session token,
+ * expiry, active status, and duplicate/used-session protection.
  */
+
+import { isSessionTokenUsed } from './kioskSession';
+
+export type KioskQrRejectReason =
+  | 'empty'
+  | 'invalid_format'
+  | 'missing_token'
+  | 'expired'
+  | 'already_used'
+  | 'inactive';
 
 export interface KioskQrValidationResult {
   valid: boolean;
   kioskId?: string;
   kioskName?: string;
   sessionToken?: string;
+  expiresAt?: number;
   location?: string;
+  reason?: KioskQrRejectReason;
   error?: string;
 }
 
-const DEFAULT_STATION_LOCATION = 'Main Innovation Hub · Ground Floor';
+const DEFAULT_STATION_LOCATION = 'Print Point Self-Service Kiosk';
+const MIN_TOKEN_LENGTH = 6;
 
-export function validateKioskQrCode(rawContent: string): KioskQrValidationResult {
-  if (!rawContent || typeof rawContent !== 'string') {
+function parseExpiryTimestamp(rawExp: unknown): number | undefined {
+  if (rawExp === undefined || rawExp === null || rawExp === '') return undefined;
+
+  if (typeof rawExp === 'number' && Number.isFinite(rawExp)) {
+    // Support Unix seconds vs milliseconds
+    return rawExp < 1_000_000_000_000 ? rawExp * 1000 : rawExp;
+  }
+
+  const str = String(rawExp).trim();
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    return num < 1_000_000_000_000 ? num * 1000 : num;
+  }
+
+  const parsedMs = Date.parse(str);
+  return Number.isFinite(parsedMs) ? parsedMs : undefined;
+}
+
+function isValidTokenFormat(token: unknown): token is string {
+  if (typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  if (trimmed.length < MIN_TOKEN_LENGTH) return false;
+  return /^[A-Za-z0-9._:-]+$/.test(trimmed);
+}
+
+function validateSessionFields(
+  kioskIdRaw: unknown,
+  tokenRaw: unknown,
+  options: {
+    kioskName?: unknown;
+    location?: unknown;
+    expiresAt?: unknown;
+    status?: unknown;
+    active?: unknown;
+    used?: unknown;
+  },
+  nowMs: number
+): KioskQrValidationResult {
+  const idStr = typeof kioskIdRaw === 'string' || typeof kioskIdRaw === 'number'
+    ? String(kioskIdRaw).trim()
+    : '';
+
+  if (!idStr) {
     return {
       valid: false,
-      error: 'Empty or invalid QR code format.',
+      reason: 'invalid_format',
+      error: 'Unrecognized QR code. Scan the Print Point kiosk QR code.',
+    };
+  }
+
+  if (!isValidTokenFormat(tokenRaw)) {
+    return {
+      valid: false,
+      reason: 'missing_token',
+      error: 'Missing or invalid kiosk session token. Refresh the QR code on the kiosk screen.',
+    };
+  }
+
+  const sessionToken = tokenRaw.trim();
+  const statusStr = typeof options.status === 'string' ? options.status.trim().toLowerCase() : '';
+
+  if (
+    options.used === true ||
+    statusStr === 'used' ||
+    statusStr === 'consumed' ||
+    isSessionTokenUsed(sessionToken)
+  ) {
+    return {
+      valid: false,
+      reason: 'already_used',
+      error: 'This kiosk session has already been used. Please generate a new QR on the kiosk.',
+    };
+  }
+
+  if (
+    options.active === false ||
+    statusStr === 'inactive' ||
+    statusStr === 'revoked' ||
+    statusStr === 'cancelled'
+  ) {
+    return {
+      valid: false,
+      reason: 'inactive',
+      error: 'This kiosk session is inactive. Please refresh the kiosk screen.',
+    };
+  }
+
+  const expiresAt = parseExpiryTimestamp(options.expiresAt);
+  if (statusStr === 'expired' || (expiresAt !== undefined && nowMs > expiresAt)) {
+    return {
+      valid: false,
+      reason: 'expired',
+      error: 'This kiosk QR session has expired. Refresh the QR code on the kiosk screen.',
+    };
+  }
+
+  const normalizedId = formatKioskName(idStr);
+  return {
+    valid: true,
+    kioskId: normalizedId,
+    kioskName:
+      typeof options.kioskName === 'string' && options.kioskName.trim()
+        ? options.kioskName.trim()
+        : normalizedId,
+    sessionToken,
+    expiresAt,
+    location:
+      typeof options.location === 'string' && options.location.trim()
+        ? options.location.trim()
+        : DEFAULT_STATION_LOCATION,
+  };
+}
+
+export function validateKioskQrCode(
+  rawContent: string,
+  nowMs: number = Date.now()
+): KioskQrValidationResult {
+  if (!rawContent || typeof rawContent !== 'string' || !rawContent.trim()) {
+    return {
+      valid: false,
+      reason: 'empty',
+      error: 'Empty or unreadable QR code.',
     };
   }
 
   const trimmed = rawContent.trim();
 
-  // 1. Check if payload is a JSON object
+  // 1. JSON Kiosk Session Payload
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
-      const data = JSON.parse(trimmed);
-      const id = data.kioskId || data.stationId || data.id || data.kiosk;
-      if (id) {
-        const normalizedId = formatKioskName(String(id));
-        return {
-          valid: true,
-          kioskId: normalizedId,
-          kioskName: data.kioskName || normalizedId,
-          sessionToken: data.token || data.sessionId || `session_${Date.now()}`,
-          location: data.location || DEFAULT_STATION_LOCATION,
-        };
+      const data = JSON.parse(trimmed) as Record<string, unknown>;
+      const id = data.kioskId ?? data.stationId ?? data.id ?? data.kiosk;
+      const token = data.sessionToken ?? data.token ?? data.sessionId ?? data.sid;
+
+      if (id !== undefined) {
+        return validateSessionFields(
+          id,
+          token,
+          {
+            kioskName: data.kioskName,
+            location: data.location,
+            expiresAt: data.expiresAt ?? data.exp ?? data.expiry,
+            status: data.status,
+            active: data.active,
+            used: data.used,
+          },
+          nowMs
+        );
       }
     } catch {
-      // Continue to URL / pattern matching
+      return {
+        valid: false,
+        reason: 'invalid_format',
+        error: 'This QR code is not a valid Print Point kiosk session.',
+      };
     }
   }
 
-  // 2. Check if payload is a Kiosk URL
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('creator4://')) {
+  // 2. Kiosk Session URL (https://, http://, printpoint://, creator4://)
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('printpoint://') ||
+    trimmed.startsWith('creator4://')
+  ) {
     try {
       const url = new URL(trimmed);
       const hostname = url.hostname.toLowerCase();
       const path = url.pathname.toLowerCase();
       const params = url.searchParams;
 
-      const isKioskHost =
+      const isKnownKioskBrand =
+        hostname.includes('printpoint') ||
         hostname.includes('creator4') ||
         hostname.includes('kiosk') ||
-        hostname.includes('printpoint') ||
-        hostname.includes('localhost') ||
-        hostname.includes('run.app');
+        url.protocol === 'printpoint:' ||
+        url.protocol === 'creator4:';
 
-      const isKioskPath =
+      const hasExplicitKioskRoute =
         path.includes('kiosk') ||
-        path.includes('print') ||
+        path.includes('session') ||
         path.includes('station') ||
-        path.includes('session');
+        path.includes('pair');
 
       const idParam =
         params.get('kiosk') ||
         params.get('kiosk_id') ||
-        params.get('id') ||
-        params.get('station');
+        params.get('station') ||
+        params.get('id');
 
-      if ((isKioskHost || isKioskPath) && (idParam || path.includes('kiosk'))) {
-        const rawId = idParam || path.split('/').filter(Boolean).pop() || '04';
-        const normalizedId = formatKioskName(rawId);
-        return {
-          valid: true,
-          kioskId: normalizedId,
-          kioskName: normalizedId,
-          sessionToken: params.get('token') || `session_${Date.now()}`,
-          location: params.get('location') || DEFAULT_STATION_LOCATION,
-        };
+      const tokenParam =
+        params.get('token') ||
+        params.get('session') ||
+        params.get('sessionId') ||
+        params.get('sid');
+
+      if ((isKnownKioskBrand || hasExplicitKioskRoute) && idParam) {
+        return validateSessionFields(
+          idParam,
+          tokenParam,
+          {
+            kioskName: params.get('name'),
+            location: params.get('location'),
+            expiresAt: params.get('expiresAt') || params.get('exp'),
+            status: params.get('status'),
+            active: params.get('active') === 'false' ? false : undefined,
+            used: params.get('used') === 'true' ? true : undefined,
+          },
+          nowMs
+        );
       }
     } catch {
-      // Ignore URL parse error and continue
+      // Fall through to invalid error
     }
   }
 
-  // 3. Direct Pairing Code / Identifier Format (e.g. "KIOSK-04", "C4-KIOSK-04", "Kiosk #04", "PRINTPOINT-04")
-  const upper = trimmed.toUpperCase();
-  const kioskMatch = upper.match(/(?:C4[-_])?(?:KIOSK|STATION|PRINTPOINT)[-_#\s]*([A-Z0-9]+)/i);
-
-  if (kioskMatch) {
-    const rawNumber = kioskMatch[1];
-    const normalizedId = formatKioskName(rawNumber);
-    return {
-      valid: true,
-      kioskId: normalizedId,
-      kioskName: normalizedId,
-      sessionToken: `c4_tok_${Date.now()}`,
-      location: DEFAULT_STATION_LOCATION,
-    };
+  // 3. Structured Colon/Delimited Session Token (e.g. "PRINTPOINT:KIOSK-04:sess_abc123")
+  const delimitedMatch = trimmed.match(
+    /^(?:PRINTPOINT|C4|KIOSK):([A-Za-z0-9_-]+):([A-Za-z0-9._-]{6,})(?::(\d{10,13}))?$/i
+  );
+  if (delimitedMatch) {
+    return validateSessionFields(
+      delimitedMatch[1],
+      delimitedMatch[2],
+      { expiresAt: delimitedMatch[3] },
+      nowMs
+    );
   }
 
-  // Fallback for simple standalone kiosk numbers or tags if formatted as kiosk
-  if (/^KIOSK\s*#?\d+$/i.test(trimmed)) {
-    const normalized = formatKioskName(trimmed.replace(/\D/g, ''));
-    return {
-      valid: true,
-      kioskId: normalized,
-      kioskName: normalized,
-      sessionToken: `c4_tok_${Date.now()}`,
-      location: DEFAULT_STATION_LOCATION,
-    };
-  }
-
-  // If the QR code does not belong to a Creator4 Lab Kiosk station
+  // Reject arbitrary strings, bare kiosk IDs without session tokens, Wi-Fi QR codes, and external URLs
   return {
     valid: false,
-    error: 'This QR code is not a Creator4 Lab Kiosk station. Please scan the QR code displayed on the physical kiosk screen.',
+    reason: 'invalid_format',
+    error: 'This QR code is not a valid Print Point kiosk session. Scan the QR code on the kiosk screen.',
   };
 }
 

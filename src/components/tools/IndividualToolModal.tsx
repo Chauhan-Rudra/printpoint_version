@@ -3,30 +3,21 @@ import { createPortal } from 'react-dom';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
   X,
-  Upload,
-  ArrowRight,
-  CheckCircle2,
+  UploadSimple,
+  CheckCircle,
   Printer,
-  Download,
-  RefreshCw,
-  Trash2,
+  DownloadSimple,
+  ArrowsClockwise,
+  Trash,
   ArrowUp,
   ArrowDown,
-  RotateCw,
-  RotateCcw,
-  Crop,
-  Layers,
-  FileText,
-  Image as ImageIcon,
   Camera,
-  AlertCircle,
-  Scissors,
-  Sparkles,
-  Maximize2,
-  Sliders,
-  Check,
-} from 'lucide-react';
+  WarningCircle,
+  FileText,
+  Play,
+} from '@phosphor-icons/react';
 import { Haptics } from '../../utils/haptics';
+import { useKioskSession } from '../../utils/kioskSession';
 import {
   mergePdfFiles,
   compressPdfFile,
@@ -40,11 +31,38 @@ import {
   imagesToPdf,
   generatePassportPhotoPdf,
   generateIdCardPdf,
+  validateToolFiles,
+  formatCompressionSummary,
 } from '../../utils/pdfToolHelpers';
 import {
   detectBlankPagesInPdf,
   removePagesFromPdf,
 } from '../../utils/blankPageDetector';
+
+function formatToolFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getToolValidationMode(toolId: ToolId): 'pdf' | 'image' | 'image-or-pdf' {
+  if (toolId === 'scan-to-pdf') return 'image-or-pdf';
+  if (
+    toolId === 'resize-image' ||
+    toolId === 'image-enhancement' ||
+    toolId === 'passport-photo' ||
+    toolId === 'id-card-layout' ||
+    toolId === 'image-to-pdf' ||
+    toolId === 'image-crop' ||
+    toolId === 'image-format-converter' ||
+    toolId === 'multi-page-scan' ||
+    toolId === 'scan-enhancement'
+  ) {
+    return 'image';
+  }
+  return 'pdf';
+}
 
 export type ToolId =
   | 'merge-pdf'
@@ -64,11 +82,8 @@ export type ToolId =
   | 'image-to-pdf'
   | 'image-crop'
   | 'image-format-converter'
-  | 'photo-printing'
   | 'scan-to-pdf'
   | 'multi-page-scan'
-  | 'merge-documents'
-  | 'document-preview'
   | 'scan-enhancement';
 
 interface IndividualToolModalProps {
@@ -77,23 +92,30 @@ interface IndividualToolModalProps {
   onSendToPrint: (file: File) => void;
 }
 
+type ImageCropPreset = 'square' | 'landscape_4_3' | 'portrait_3_4' | 'trim_10';
+
 export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
   toolId,
   onClose,
   onSendToPrint,
 }) => {
+  const { session } = useKioskSession();
+
   // Shared state
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [resultFile, setResultFile] = useState<File | null>(null);
-  const [jpgResults, setJpgResults] = useState<Array<{ pageNumber: number; dataUrl: string; blob: Blob }>>([]);
+  const [jpgResults, setJpgResults] = useState<
+    Array<{ pageNumber: number; dataUrl: string; blob: Blob }>
+  >([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Tool specific options
   const [compressLevel, setCompressLevel] = useState<'low' | 'medium' | 'high'>('medium');
   const [nUpMode, setNUpMode] = useState<2 | 4>(2);
   const [cropMarginPt, setCropMarginPt] = useState<number>(20);
+  const [imageCropPreset, setImageCropPreset] = useState<ImageCropPreset>('square');
   const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
   const [pagesToDelete, setPagesToDelete] = useState<number[]>([]);
   const [reorderedPages, setReorderedPages] = useState<number[]>([]);
@@ -106,20 +128,31 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
   const [resizeHeight, setResizeHeight] = useState<number>(600);
   const [keepAspect, setKeepAspect] = useState<boolean>(true);
   const [originalAspect, setOriginalAspect] = useState<number>(1);
-  const [targetFormat, setTargetFormat] = useState<'image/jpeg' | 'image/png' | 'image/webp'>('image/jpeg');
-  const [enhancePreset, setEnhancePreset] = useState<'auto' | 'document' | 'bw' | 'vivid'>('document');
+  const [targetFormat, setTargetFormat] = useState<'image/jpeg' | 'image/png' | 'image/webp'>(
+    'image/jpeg'
+  );
+  const [enhancePreset, setEnhancePreset] = useState<'auto' | 'document' | 'bw' | 'vivid'>(
+    'document'
+  );
   const [scannedPages, setScannedPages] = useState<string[]>([]);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
 
-  // PDF Page inspection
+  // PDF Page inspection & result preview
   const [pdfPageCount, setPdfPageCount] = useState<number>(0);
   const [pageThumbnails, setPageThumbnails] = useState<Record<number, string>>({});
+  const [compressionStats, setCompressionStats] = useState<{
+    originalSize: number;
+    newSize: number;
+  } | null>(null);
+  const [resultPreviewUrl, setResultPreviewUrl] = useState<string | null>(null);
+  const [resultPageCount, setResultPageCount] = useState<number | null>(null);
+  const [isRenderingResultPreview, setIsRenderingResultPreview] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const filePickModeRef = useRef<'replace' | 'append'>('replace');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Reset state when opening a new tool
   useEffect(() => {
     setSelectedFiles([]);
     setIsProcessing(false);
@@ -137,9 +170,82 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
     setScannedPages([]);
     setPdfPageCount(0);
     setPageThumbnails({});
+    setCompressionStats(null);
+    setResultPreviewUrl(null);
+    setResultPageCount(null);
+    setIsRenderingResultPreview(false);
+    setCropMarginPt(20);
+    setImageCropPreset('square');
   }, [toolId]);
 
-  // Load PDF metadata and thumbnails when primary file selected
+  useEffect(() => {
+    if (!resultFile) {
+      setResultPreviewUrl(null);
+      setResultPageCount(null);
+      setIsRenderingResultPreview(false);
+      return;
+    }
+
+    let isCancelled = false;
+    let objectUrlToRevoke: string | null = null;
+    const isPdf =
+      resultFile.type === 'application/pdf' ||
+      resultFile.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
+      setIsRenderingResultPreview(true);
+      resultFile
+        .arrayBuffer()
+        .then((buffer) => pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise)
+        .then(async (doc) => {
+          if (isCancelled) return;
+          setResultPageCount(doc.numPages);
+          const page = await doc.getPage(1);
+          const baseViewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(2, Math.max(0.8, 640 / baseViewport.width));
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            if (!isCancelled) {
+              setResultPreviewUrl(canvas.toDataURL('image/jpeg', 0.88));
+            }
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) {
+            setResultPreviewUrl(null);
+          }
+        })
+        .finally(() => {
+          if (!isCancelled) {
+            setIsRenderingResultPreview(false);
+          }
+        });
+    } else if (resultFile.type.startsWith('image/')) {
+      objectUrlToRevoke = URL.createObjectURL(resultFile);
+      setResultPreviewUrl(objectUrlToRevoke);
+      setResultPageCount(null);
+      setIsRenderingResultPreview(false);
+    } else {
+      setResultPreviewUrl(null);
+      setResultPageCount(null);
+      setIsRenderingResultPreview(false);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
+    };
+  }, [resultFile]);
+
   useEffect(() => {
     if (selectedFiles.length === 0) return;
     const primary = selectedFiles[0];
@@ -150,11 +256,11 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
       pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise.then(async (doc) => {
         if (!isMounted) return;
         setPdfPageCount(doc.numPages);
-        setReorderedPages(Array.from({ length: doc.numPages }, (_, i) => i + 1));
+        const order = Array.from({ length: doc.numPages }, (_, i) => i + 1);
+        setReorderedPages(order);
 
-        // Generate quick low-res thumbnails for page tools
         const thumbs: Record<number, string> = {};
-        for (let p = 1; p <= Math.min(doc.numPages, 16); p++) {
+        for (let p = 1; p <= Math.min(doc.numPages, 24); p++) {
           try {
             const page = await doc.getPage(p);
             const vp = page.getViewport({ scale: 0.25 });
@@ -165,7 +271,7 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, vp.width, vp.height);
             await page.render({ canvasContext: ctx, viewport: vp }).promise;
-            thumbs[p] = canvas.toDataURL('image/jpeg', 0.7);
+            thumbs[p] = canvas.toDataURL('image/jpeg', 0.72);
           } catch {
             // ignore thumbnail render error
           }
@@ -174,7 +280,6 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
       });
     });
 
-    // Run blank page analysis if blank removal tool
     if (toolId === 'blank-page-removal') {
       detectBlankPagesInPdf(primary, 'blank-tool-doc').then((res) => {
         if (isMounted) {
@@ -189,7 +294,6 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
     };
   }, [selectedFiles, toolId]);
 
-  // Camera cleanup
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -209,8 +313,9 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
         videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
+      setErrorMessage(null);
     } catch {
-      setErrorMessage('Camera access was not granted or is unsupported.');
+      setErrorMessage('Camera access was not granted. You can upload an image instead.');
     }
   };
 
@@ -224,7 +329,6 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(video, 0, 0);
 
-    // Apply document contrast enhancement
     const frameData = canvas.toDataURL('image/jpeg', 0.92);
     setScannedPages((prev) => [...prev, frameData]);
   };
@@ -254,7 +358,17 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
     }
   };
 
-  // Tool execution logic
+  const moveReorderedPage = (index: number, direction: -1 | 1) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= reorderedPages.length) return;
+    Haptics.buttonPress();
+    const next = [...reorderedPages];
+    const tmp = next[targetIdx];
+    next[targetIdx] = next[index];
+    next[index] = tmp;
+    setReorderedPages(next);
+  };
+
   const handleExecuteTool = async () => {
     if (!toolId) return;
     Haptics.buttonPress();
@@ -264,8 +378,7 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
     try {
       switch (toolId) {
-        case 'merge-pdf':
-        case 'merge-documents': {
+        case 'merge-pdf': {
           if (selectedFiles.length < 2) {
             throw new Error('Please select at least 2 PDF documents to merge.');
           }
@@ -279,15 +392,17 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           const res = await compressPdfFile(selectedFiles[0], compressLevel, (pct) =>
             setProgress(pct)
           );
+          setCompressionStats({
+            originalSize: res.originalSize,
+            newSize: res.newSize,
+          });
           setResultFile(res.compressedFile);
           break;
         }
 
         case 'pdf-to-jpg': {
           if (!selectedFiles[0]) throw new Error('Please select a PDF file.');
-          const jpgs = await convertPdfToJpg(selectedFiles[0], (pct) =>
-            setProgress(pct)
-          );
+          const jpgs = await convertPdfToJpg(selectedFiles[0], (pct) => setProgress(pct));
           setJpgResults(jpgs);
           break;
         }
@@ -330,8 +445,11 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
         case 'split-pdf': {
           if (!selectedFiles[0]) throw new Error('Please select a PDF file.');
-          if (splitSelectedPages.length === 0) throw new Error('Select pages to extract.');
-          const split = await splitPdfPages(selectedFiles[0], splitSelectedPages);
+          if (splitSelectedPages.length === 0) {
+            throw new Error('Select at least one page to extract.');
+          }
+          const sortedPages = [...splitSelectedPages].sort((a, b) => a - b);
+          const split = await splitPdfPages(selectedFiles[0], sortedPages);
           setResultFile(split);
           break;
         }
@@ -374,17 +492,64 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           if (!selectedFiles[0]) throw new Error('Please select an image to resize.');
           const imgBitmap = await createImageBitmap(selectedFiles[0]);
           const canvas = document.createElement('canvas');
-          canvas.width = resizeWidth;
-          canvas.height = resizeHeight;
+          canvas.width = Math.max(16, resizeWidth);
+          canvas.height = Math.max(16, resizeHeight);
           const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(imgBitmap, 0, 0, resizeWidth, resizeHeight);
+          ctx.drawImage(imgBitmap, 0, 0, canvas.width, canvas.height);
           const blob = await new Promise<Blob>((res) =>
-            canvas.toBlob((b) => res(b || new Blob()), selectedFiles[0].type || 'image/jpeg')
+            canvas.toBlob((b) => res(b || new Blob()), selectedFiles[0].type || 'image/jpeg', 0.92)
           );
           const resized = new File([blob], `resized_${selectedFiles[0].name}`, {
             type: selectedFiles[0].type || 'image/jpeg',
           });
           setResultFile(resized);
+          break;
+        }
+
+        case 'image-crop': {
+          if (!selectedFiles[0]) throw new Error('Please select an image to crop.');
+          const imgBitmap = await createImageBitmap(selectedFiles[0]);
+          const srcW = imgBitmap.width;
+          const srcH = imgBitmap.height;
+
+          let cropX = 0;
+          let cropY = 0;
+          let cropW = srcW;
+          let cropH = srcH;
+
+          if (imageCropPreset === 'trim_10') {
+            cropX = Math.round(srcW * 0.1);
+            cropY = Math.round(srcH * 0.1);
+            cropW = Math.round(srcW * 0.8);
+            cropH = Math.round(srcH * 0.8);
+          } else {
+            const targetRatio =
+              imageCropPreset === 'square'
+                ? 1
+                : imageCropPreset === 'landscape_4_3'
+                ? 4 / 3
+                : 3 / 4;
+            const currentRatio = srcW / srcH;
+            if (currentRatio > targetRatio) {
+              cropW = Math.round(srcH * targetRatio);
+              cropX = Math.round((srcW - cropW) / 2);
+            } else {
+              cropH = Math.round(srcW / targetRatio);
+              cropY = Math.round((srcH - cropH) / 2);
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(16, cropW);
+          canvas.height = Math.max(16, cropH);
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(imgBitmap, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+          const mime = selectedFiles[0].type || 'image/jpeg';
+          const blob = await new Promise<Blob>((res) =>
+            canvas.toBlob((b) => res(b || new Blob()), mime, 0.94)
+          );
+          const cropped = new File([blob], `cropped_${selectedFiles[0].name}`, { type: mime });
+          setResultFile(cropped);
           break;
         }
 
@@ -424,7 +589,8 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           canvas.height = imgBitmap.height;
           const ctx = canvas.getContext('2d')!;
           ctx.drawImage(imgBitmap, 0, 0);
-          const ext = targetFormat === 'image/png' ? 'png' : targetFormat === 'image/webp' ? 'webp' : 'jpg';
+          const ext =
+            targetFormat === 'image/png' ? 'png' : targetFormat === 'image/webp' ? 'webp' : 'jpg';
           const blob = await new Promise<Blob>((res) =>
             canvas.toBlob((b) => res(b || new Blob()), targetFormat, 0.92)
           );
@@ -437,9 +603,12 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           break;
         }
 
-        case 'photo-printing': {
-          if (!selectedFiles[0]) throw new Error('Please select a photo to format for printing.');
-          const pdf = await imagesToPdf([selectedFiles[0]]);
+        case 'scan-to-pdf':
+        case 'multi-page-scan': {
+          if (selectedFiles.length === 0) {
+            throw new Error('Capture pages with camera or select photos first.');
+          }
+          const pdf = await imagesToPdf(selectedFiles);
           setResultFile(pdf);
           break;
         }
@@ -448,9 +617,11 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
       setIsProcessing(false);
       setProgress(100);
       Haptics.success();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsProcessing(false);
-      setErrorMessage(err.message || 'Operation failed. Please try again.');
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Operation failed. Please try again.'
+      );
       Haptics.error();
     }
   };
@@ -479,31 +650,113 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
   if (!toolId) return null;
 
-  // Derive tool titles and metadata
-  const toolMeta: Record<ToolId, { title: string; subtitle: string; accept: string; multi?: boolean }> = {
-    'merge-pdf': { title: 'Merge PDF', subtitle: 'Combine multiple PDF documents into one', accept: 'application/pdf', multi: true },
-    'compress-pdf': { title: 'Compress PDF', subtitle: 'Reduce PDF file size while keeping text sharp', accept: 'application/pdf' },
-    'pdf-to-jpg': { title: 'PDF to JPG', subtitle: 'Extract every page as a high-quality JPG image', accept: 'application/pdf' },
-    'pages-per-sheet': { title: 'Pages Per Sheet (N-Up)', subtitle: 'Print 2 or 4 pages on one sheet to save paper', accept: 'application/pdf' },
-    'rotate-pages': { title: 'Rotate Pages', subtitle: 'Rotate individual pages by 90°, 180° or 270°', accept: 'application/pdf' },
-    'delete-pages': { title: 'Delete Pages', subtitle: 'Select and remove unwanted pages', accept: 'application/pdf' },
-    'reorder-pages': { title: 'Reorder Pages', subtitle: 'Rearrange page sequence before printing', accept: 'application/pdf' },
-    'crop-pages': { title: 'Crop Pages', subtitle: 'Adjust page boundaries and margins', accept: 'application/pdf' },
-    'split-pdf': { title: 'Split PDF', subtitle: 'Extract specific pages into a new document', accept: 'application/pdf' },
-    'blank-page-removal': { title: 'Blank Page Removal', subtitle: 'Automatically detect and remove blank pages', accept: 'application/pdf' },
-    'resize-image': { title: 'Resize Image', subtitle: 'Change pixel dimensions with aspect ratio lock', accept: 'image/*' },
-    'image-enhancement': { title: 'Image Enhancement', subtitle: 'Improve sharpness, contrast and clarity', accept: 'image/*' },
-    'passport-photo': { title: 'Passport Photo Maker', subtitle: 'Tile 6 or 8 passport photos on an A4 sheet', accept: 'image/*' },
-    'id-card-layout': { title: 'ID Card Layout', subtitle: 'Arrange front & back ID on a single A4 page', accept: 'image/*' },
-    'image-to-pdf': { title: 'Image to PDF', subtitle: 'Convert photos or scans into a clean PDF', accept: 'image/*', multi: true },
-    'image-crop': { title: 'Image Crop', subtitle: 'Crop and trim photo margins', accept: 'image/*' },
-    'image-format-converter': { title: 'Image Format Converter', subtitle: 'Convert JPG, PNG, WebP seamlessly', accept: 'image/*' },
-    'photo-printing': { title: 'Photo Printing Prep', subtitle: 'Format photos for standard print sizes', accept: 'image/*' },
-    'scan-to-pdf': { title: 'Scan to PDF', subtitle: 'Capture document with camera and save as PDF', accept: 'image/*,application/pdf' },
-    'multi-page-scan': { title: 'Multiple Page Scan', subtitle: 'Snap several pages into one PDF document', accept: 'image/*' },
-    'merge-documents': { title: 'Merge Documents', subtitle: 'Combine documents into one file', accept: 'application/pdf', multi: true },
-    'document-preview': { title: 'Document Preview', subtitle: 'Inspect pages before printing', accept: 'application/pdf' },
-    'scan-enhancement': { title: 'Scan Enhancement', subtitle: 'Make text readable with high-contrast filter', accept: 'image/*' },
+  const toolMeta: Record<
+    ToolId,
+    { title: string; subtitle: string; accept: string; multi?: boolean }
+  > = {
+    'merge-pdf': {
+      title: 'Merge PDF',
+      subtitle: 'Combine multiple PDF documents into one',
+      accept: 'application/pdf',
+      multi: true,
+    },
+    'compress-pdf': {
+      title: 'Compress PDF',
+      subtitle: 'Reduce PDF file size while keeping text sharp',
+      accept: 'application/pdf',
+    },
+    'pdf-to-jpg': {
+      title: 'PDF to JPG',
+      subtitle: 'Extract every page as a high-quality JPG image',
+      accept: 'application/pdf',
+    },
+    'pages-per-sheet': {
+      title: 'Pages Per Sheet (N-Up)',
+      subtitle: 'Print 2 or 4 pages on one sheet to save paper',
+      accept: 'application/pdf',
+    },
+    'rotate-pages': {
+      title: 'Rotate Pages',
+      subtitle: 'Rotate individual pages by 90°, 180° or 270°',
+      accept: 'application/pdf',
+    },
+    'delete-pages': {
+      title: 'Remove Pages',
+      subtitle: 'Select and delete unwanted pages cleanly',
+      accept: 'application/pdf',
+    },
+    'reorder-pages': {
+      title: 'Reorder Pages',
+      subtitle: 'Rearrange page sequence before printing',
+      accept: 'application/pdf',
+    },
+    'crop-pages': {
+      title: 'Crop Pages',
+      subtitle: 'Adjust page boundaries and margins',
+      accept: 'application/pdf',
+    },
+    'split-pdf': {
+      title: 'Split PDF',
+      subtitle: 'Extract specific pages into a new document',
+      accept: 'application/pdf',
+    },
+    'blank-page-removal': {
+      title: 'Blank Page Removal',
+      subtitle: 'Automatically detect and remove blank pages',
+      accept: 'application/pdf',
+    },
+    'resize-image': {
+      title: 'Resize Image',
+      subtitle: 'Change pixel dimensions with aspect ratio lock',
+      accept: 'image/*',
+    },
+    'image-enhancement': {
+      title: 'Image Enhancement',
+      subtitle: 'Improve sharpness, contrast and clarity',
+      accept: 'image/*',
+    },
+    'passport-photo': {
+      title: 'Passport Photo Maker',
+      subtitle: 'Tile 6 or 8 passport photos on an A4 sheet',
+      accept: 'image/*',
+    },
+    'id-card-layout': {
+      title: 'ID Card Layout',
+      subtitle: 'Arrange front & back ID on a single A4 page',
+      accept: 'image/*',
+    },
+    'image-to-pdf': {
+      title: 'Image to PDF',
+      subtitle: 'Convert photos or scans into a clean PDF',
+      accept: 'image/*',
+      multi: true,
+    },
+    'image-crop': {
+      title: 'Crop Image',
+      subtitle: 'Crop and trim photo framing before printing',
+      accept: 'image/*',
+    },
+    'image-format-converter': {
+      title: 'Image Format Converter',
+      subtitle: 'Convert JPG, PNG, WebP seamlessly',
+      accept: 'image/*',
+    },
+    'scan-to-pdf': {
+      title: 'Scan to PDF',
+      subtitle: 'Capture document with camera and save as PDF',
+      accept: 'image/*,application/pdf',
+    },
+    'multi-page-scan': {
+      title: 'Multiple Page Scan',
+      subtitle: 'Snap several pages into one PDF document',
+      accept: 'image/*',
+      multi: true,
+    },
+    'scan-enhancement': {
+      title: 'Scan Enhancement',
+      subtitle: 'Make text readable with high-contrast filter',
+      accept: 'image/*',
+    },
   };
 
   const currentMeta = toolMeta[toolId];
@@ -513,87 +766,105 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={currentMeta.title}
-      className="fixed inset-0 z-50 bg-[#F4F7F4] text-[#191C1A] flex flex-col animate-apple-reveal overflow-y-auto"
+      className="fixed inset-0 z-50 bg-[#F8FAF6] text-[#191C1A] flex flex-col animate-view-enter overflow-y-auto"
     >
-      {/* Sticky Clean Header */}
-      <header className="sticky top-0 z-20 px-4 h-14 bg-white/95 backdrop-blur-md border-b border-[#1B4D2E]/10 flex items-center justify-between shadow-2xs">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close tool"
-            className="w-9 h-9 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] hover:bg-[#E2EFE7] flex items-center justify-center active:scale-95 transition-all"
-          >
-            <X className="w-5 h-5 stroke-[2.2]" />
-          </button>
-          <div className="flex flex-col min-w-0">
-            <h2 className="text-[14px] font-bold text-[#191C1A] truncate">
-              {currentMeta.title}
-            </h2>
-            <span className="text-[10px] text-[#545D56] truncate">
-              {currentMeta.subtitle}
-            </span>
+      {/* Sticky Header */}
+      <header className="sticky top-0 z-20 px-4 bg-white/95 border-b border-outline-variant/40">
+        <div className="max-w-lg mx-auto h-14 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close tool"
+              className="w-10 h-10 rounded-xl bg-[#EAF3ED] text-[#194F34] hover:bg-[#DDECE2] flex items-center justify-center active:scale-95 transition-all shrink-0"
+            >
+              <X size={18} weight="bold" aria-hidden="true" />
+            </button>
+            <div className="flex flex-col min-w-0">
+              <h2 className="text-[14.5px] font-bold text-[#191C1A] truncate">
+                {currentMeta.title}
+              </h2>
+              <span className="text-[11px] text-[#545D56] truncate">
+                {currentMeta.subtitle}
+              </span>
+            </div>
           </div>
-        </div>
 
-        {selectedFiles.length > 0 && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="text-[11px] font-semibold text-[#1B4D2E] hover:underline px-2 py-1"
-          >
-            Change File
-          </button>
-        )}
+          {selectedFiles.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                filePickModeRef.current = 'replace';
+                fileInputRef.current?.click();
+              }}
+              className="text-[12px] font-semibold text-[#194F34] hover:underline px-2.5 py-2 shrink-0"
+            >
+              {currentMeta.multi ? 'Replace Files' : 'Change File'}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-4 max-w-md mx-auto w-full flex flex-col gap-4 pb-28">
+      <main className="flex-1 p-4 max-w-lg mx-auto w-full flex flex-col gap-4 pb-28">
         {/* Error Notification */}
         {errorMessage && (
-          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
+          <div
+            role="alert"
+            className="p-3.5 rounded-xl bg-[#FFF1F2] border border-[#BA1A1A]/20 text-[#BA1A1A] text-xs font-medium flex items-center justify-between gap-2"
+          >
+            <div className="flex items-center gap-2">
+              <WarningCircle size={16} weight="fill" className="text-[#BA1A1A] shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              aria-label="Dismiss error"
+              className="p-1 text-[#BA1A1A]"
+            >
+              <X size={14} weight="bold" />
+            </button>
           </div>
         )}
 
         {/* Camera Stage for Scan Tools */}
         {(toolId === 'scan-to-pdf' || toolId === 'multi-page-scan') && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col items-center">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col items-center">
             {cameraActive ? (
-              <div className="relative w-full aspect-3/4 rounded-2xl overflow-hidden bg-black mb-3">
+              <div className="relative w-full aspect-3/4 rounded-xl overflow-hidden bg-black mb-3">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                <div className="absolute inset-4 border-2 border-emerald-400 rounded-xl pointer-events-none opacity-80" />
+                <div className="absolute inset-4 border-2 border-[#7DD39A] rounded-xl pointer-events-none opacity-80" />
                 <button
                   type="button"
                   onClick={captureCameraFrame}
-                  className="absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-emerald-600 text-white font-bold text-xs shadow-lg active:scale-95 flex items-center gap-1.5"
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 min-h-[44px] px-4 rounded-xl bg-[#194F34] text-white font-bold text-xs shadow-lg active:scale-95 flex items-center gap-1.5"
                 >
-                  <Camera className="w-4 h-4" />
-                  <span>Snap Page ({scannedPages.length})</span>
+                  <Camera size={16} weight="bold" />
+                  <span className="tabular-nums">Snap Page ({scannedPages.length})</span>
                 </button>
               </div>
             ) : (
-              <div className="text-center py-6">
-                <div className="w-14 h-14 rounded-2xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center mx-auto mb-3">
-                  <Camera className="w-7 h-7 stroke-[1.8]" />
+              <div className="text-center py-5">
+                <div className="w-14 h-14 rounded-2xl bg-[#EAF3ED] text-[#194F34] flex items-center justify-center mx-auto mb-3">
+                  <Camera size={26} weight="regular" aria-hidden="true" />
                 </div>
                 <h3 className="text-sm font-bold text-[#191C1A]">Use Device Camera</h3>
                 <p className="text-xs text-[#545D56] mt-1 mb-4 max-w-xs">
-                  Position your document under good lighting to capture sharp pages.
+                  Hold camera steady above your document to capture clean printable pages.
                 </p>
                 <div className="flex gap-2 justify-center">
                   <button
                     type="button"
                     onClick={startCamera}
-                    className="px-4 py-2 rounded-xl bg-[#1B4D2E] text-white font-semibold text-xs shadow-xs active:scale-95"
+                    className="min-h-[44px] px-4 rounded-xl bg-[#194F34] text-white font-semibold text-xs active:scale-95"
                   >
                     Start Camera
                   </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] font-semibold text-xs border border-[#1B4D2E]/20"
+                    className="min-h-[44px] px-4 rounded-xl bg-[#EAF3ED] text-[#194F34] font-semibold text-xs border border-[#194F34]/15"
                   >
                     Choose Photo
                   </button>
@@ -601,17 +872,19 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
               </div>
             )}
 
-            {/* Scanned Pages Strip */}
             {scannedPages.length > 0 && (
-              <div className="w-full mt-3 pt-3 border-t border-[#1B4D2E]/10 flex flex-col gap-2">
-                <span className="text-[11px] font-bold text-[#191C1A]">
+              <div className="w-full mt-3 pt-3 border-t border-outline-variant/40 flex flex-col gap-2">
+                <span className="text-[11.5px] font-bold text-[#191C1A] tabular-nums">
                   Captured Pages ({scannedPages.length})
                 </span>
                 <div className="flex gap-2 overflow-x-auto py-1">
                   {scannedPages.map((src, idx) => (
-                    <div key={idx} className="relative w-14 h-18 rounded-lg overflow-hidden border border-black/10 shrink-0">
+                    <div
+                      key={idx}
+                      className="relative w-14 h-18 rounded-lg overflow-hidden border border-black/10 shrink-0"
+                    >
                       <img src={src} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
-                      <span className="absolute bottom-0.5 right-0.5 bg-black/70 text-white text-[9px] px-1 rounded-xs">
+                      <span className="absolute bottom-0.5 right-0.5 bg-black/75 text-white text-[9px] px-1 rounded-xs tabular-nums">
                         {idx + 1}
                       </span>
                     </div>
@@ -621,7 +894,7 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   type="button"
                   onClick={finishCameraScan}
                   disabled={isProcessing}
-                  className="w-full h-11 rounded-xl bg-emerald-600 text-white font-semibold text-xs shadow-xs active:scale-98 mt-1"
+                  className="w-full min-h-[46px] rounded-xl bg-[#194F34] text-white font-semibold text-xs active:scale-98 mt-1"
                 >
                   Generate PDF ({scannedPages.length} pages)
                 </button>
@@ -630,26 +903,36 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           </div>
         )}
 
-        {/* ID Card Front & Back Dual File Picker */}
+        {/* ID Card Front & Back Dual Picker */}
         {toolId === 'id-card-layout' && (
           <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-2xl bg-white border border-[#1B4D2E]/15 text-center flex flex-col items-center">
-              <span className="text-xs font-bold text-[#191C1A] mb-1">Front Side</span>
+            <div className="p-3.5 rounded-2xl bg-white border border-outline-variant/60 text-center flex flex-col items-center">
+              <span className="text-xs font-bold text-[#191C1A] mb-2">Front Side</span>
               {idFrontFile ? (
-                <div className="text-[11px] text-emerald-700 font-semibold truncate max-w-full">
-                  ✓ {idFrontFile.name}
+                <div className="text-[11.5px] text-[#194F34] font-semibold truncate max-w-full">
+                  {idFrontFile.name}
                 </div>
               ) : (
-                <label className="w-full h-20 rounded-xl border border-dashed border-[#1B4D2E]/30 bg-[#EDF5F0]/50 flex flex-col items-center justify-center cursor-pointer hover:bg-[#EDF5F0]">
-                  <Upload className="w-4 h-4 text-[#1B4D2E] mb-1" />
-                  <span className="text-[10px] font-semibold text-[#1B4D2E]">Add Front</span>
+                <label className="w-full h-24 rounded-xl border border-dashed border-[#194F34]/30 bg-[#EAF3ED]/40 flex flex-col items-center justify-center cursor-pointer hover:bg-[#EAF3ED]">
+                  <UploadSimple size={18} weight="bold" className="text-[#194F34] mb-1" />
+                  <span className="text-[11px] font-semibold text-[#194F34]">Add Front</span>
                   <input
                     type="file"
                     accept="image/*"
                     className="sr-only"
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setIdFrontFile(e.target.files[0]);
+                      const picked = e.target.files ? Array.from(e.target.files) : [];
+                      e.target.value = '';
+                      if (picked.length === 0) return;
+                      const { validFiles, errors } = validateToolFiles(picked, 'image');
+                      if (errors.length > 0) {
+                        setErrorMessage(errors[0]);
+                        return;
+                      }
+                      if (validFiles[0]) {
+                        setIdFrontFile(validFiles[0]);
+                        setErrorMessage(null);
+                        setResultFile(null);
                       }
                     }}
                   />
@@ -657,23 +940,33 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
               )}
             </div>
 
-            <div className="p-3 rounded-2xl bg-white border border-[#1B4D2E]/15 text-center flex flex-col items-center">
-              <span className="text-xs font-bold text-[#191C1A] mb-1">Back Side (Optional)</span>
+            <div className="p-3.5 rounded-2xl bg-white border border-outline-variant/60 text-center flex flex-col items-center">
+              <span className="text-xs font-bold text-[#191C1A] mb-2">Back Side (Optional)</span>
               {idBackFile ? (
-                <div className="text-[11px] text-emerald-700 font-semibold truncate max-w-full">
-                  ✓ {idBackFile.name}
+                <div className="text-[11.5px] text-[#194F34] font-semibold truncate max-w-full">
+                  {idBackFile.name}
                 </div>
               ) : (
-                <label className="w-full h-20 rounded-xl border border-dashed border-[#1B4D2E]/30 bg-[#EDF5F0]/50 flex flex-col items-center justify-center cursor-pointer hover:bg-[#EDF5F0]">
-                  <Upload className="w-4 h-4 text-[#1B4D2E] mb-1" />
-                  <span className="text-[10px] font-semibold text-[#1B4D2E]">Add Back</span>
+                <label className="w-full h-24 rounded-xl border border-dashed border-[#194F34]/30 bg-[#EAF3ED]/40 flex flex-col items-center justify-center cursor-pointer hover:bg-[#EAF3ED]">
+                  <UploadSimple size={18} weight="bold" className="text-[#194F34] mb-1" />
+                  <span className="text-[11px] font-semibold text-[#194F34]">Add Back</span>
                   <input
                     type="file"
                     accept="image/*"
                     className="sr-only"
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setIdBackFile(e.target.files[0]);
+                      const picked = e.target.files ? Array.from(e.target.files) : [];
+                      e.target.value = '';
+                      if (picked.length === 0) return;
+                      const { validFiles, errors } = validateToolFiles(picked, 'image');
+                      if (errors.length > 0) {
+                        setErrorMessage(errors[0]);
+                        return;
+                      }
+                      if (validFiles[0]) {
+                        setIdBackFile(validFiles[0]);
+                        setErrorMessage(null);
+                        setResultFile(null);
                       }
                     }}
                   />
@@ -684,23 +977,31 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
         )}
 
         {/* Generic File Selection Card */}
-        {toolId !== 'scan-to-pdf' && toolId !== 'multi-page-scan' && toolId !== 'id-card-layout' && selectedFiles.length === 0 && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-6 rounded-3xl bg-white border border-dashed border-[#1B4D2E]/30 hover:border-[#1B4D2E]/50 shadow-xs flex flex-col items-center justify-center text-center group active:scale-[0.99] transition-all"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-              <Upload className="w-6 h-6 stroke-[2]" />
-            </div>
-            <h3 className="text-sm font-bold text-[#191C1A]">
-              Select {currentMeta.multi ? 'Documents' : 'Document / Photo'}
-            </h3>
-            <p className="text-xs text-[#545D56] mt-1 max-w-xs">
-              Tap to browse files from your phone to start {currentMeta.title.toLowerCase()}.
-            </p>
-          </button>
-        )}
+        {toolId !== 'scan-to-pdf' &&
+          toolId !== 'multi-page-scan' &&
+          toolId !== 'id-card-layout' &&
+          selectedFiles.length === 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                filePickModeRef.current = 'replace';
+                fileInputRef.current?.click();
+              }}
+              className="p-6 rounded-2xl bg-white border border-dashed border-[#194F34]/30 hover:border-[#194F34]/50 flex flex-col items-center justify-center text-center group active:scale-[0.99] transition-all"
+            >
+              <div className="w-13 h-13 rounded-2xl bg-[#EAF3ED] text-[#194F34] flex items-center justify-center mb-3">
+                <UploadSimple size={24} weight="bold" aria-hidden="true" />
+              </div>
+              <h3 className="text-sm font-bold text-[#191C1A]">
+                Select {currentMeta.multi ? 'Documents' : 'Document / Photo'}
+              </h3>
+              <p className="text-xs text-[#545D56] mt-1 max-w-xs">
+                {toolId === 'merge-pdf'
+                  ? 'Choose 2 or more PDF files from your device to combine into one.'
+                  : `Tap to browse files from your device to run ${currentMeta.title.toLowerCase()}.`}
+              </p>
+            </button>
+          )}
 
         <input
           ref={fileInputRef}
@@ -709,44 +1010,77 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           multiple={currentMeta.multi}
           className="sr-only"
           onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              const files = Array.from(e.target.files);
-              setSelectedFiles(files);
-              if (toolId === 'resize-image' && files[0]) {
-                createImageBitmap(files[0]).then((bm) => {
-                  setResizeWidth(bm.width);
-                  setResizeHeight(bm.height);
-                  setOriginalAspect(bm.width / bm.height);
-                });
-              }
+            const rawFiles = e.target.files ? Array.from(e.target.files) : [];
+            e.target.value = '';
+            if (rawFiles.length === 0) return;
+
+            const { validFiles, errors } = validateToolFiles(
+              rawFiles,
+              getToolValidationMode(toolId)
+            );
+
+            if (errors.length > 0) {
+              setErrorMessage(errors[0]);
+              Haptics.error();
+            } else {
+              setErrorMessage(null);
+            }
+
+            if (validFiles.length === 0) return;
+
+            const isAppend = filePickModeRef.current === 'append' && Boolean(currentMeta.multi);
+            filePickModeRef.current = 'replace';
+
+            setSelectedFiles((prev) => (isAppend ? [...prev, ...validFiles] : validFiles));
+            setResultFile(null);
+            setJpgResults([]);
+            setCompressionStats(null);
+
+            if (toolId === 'resize-image' && validFiles[0]) {
+              createImageBitmap(validFiles[0]).then((bm) => {
+                setResizeWidth(bm.width);
+                setResizeHeight(bm.height);
+                setOriginalAspect(bm.width / bm.height);
+              });
             }
           }}
         />
 
-        {/* Selected Files List for Multi-File Tools (Merge) */}
+        {/* Selected Files List for Multi-File Tools */}
         {selectedFiles.length > 0 && currentMeta.multi && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-2">
-            <div className="flex items-center justify-between pb-2 border-b border-black/[0.06]">
-              <span className="text-xs font-bold text-[#191C1A]">
-                Files to Merge ({selectedFiles.length})
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-2">
+            <div className="flex items-center justify-between pb-2 border-b border-outline-variant/40">
+              <span className="text-xs font-bold text-[#191C1A] tabular-nums">
+                Selected Files ({selectedFiles.length})
               </span>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="text-[11px] font-semibold text-[#1B4D2E]"
+                onClick={() => {
+                  filePickModeRef.current = 'append';
+                  fileInputRef.current?.click();
+                }}
+                className="text-[12px] font-semibold text-[#194F34] hover:underline"
               >
                 + Add More
               </button>
             </div>
             {selectedFiles.map((f, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-[#F8FAF8] border border-black/5 text-xs">
+              <div
+                key={`${f.name}-${idx}`}
+                className="flex items-center justify-between p-2.5 rounded-xl bg-[#F8FAF6] border border-outline-variant/35 text-xs"
+              >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-5 h-5 rounded-md bg-[#EDF5F0] text-[#1B4D2E] font-bold text-[10px] flex items-center justify-center shrink-0">
+                  <span className="w-6 h-6 rounded-md bg-[#EAF3ED] text-[#194F34] font-bold text-[11px] flex items-center justify-center shrink-0 tabular-nums">
                     {idx + 1}
                   </span>
-                  <span className="font-medium text-[#191C1A] truncate max-w-[170px]">
-                    {f.name}
-                  </span>
+                  <div className="min-w-0">
+                    <div className="font-medium text-[#191C1A] truncate max-w-[170px]">
+                      {f.name}
+                    </div>
+                    <div className="text-[10.5px] text-[#545D56] tabular-nums">
+                      {formatToolFileSize(f.size)}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -758,10 +1092,12 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                       next[idx - 1] = next[idx];
                       next[idx] = temp;
                       setSelectedFiles(next);
+                      setResultFile(null);
                     }}
-                    className="p-1 hover:text-[#1B4D2E] disabled:opacity-20"
+                    aria-label="Move up"
+                    className="w-8 h-8 flex items-center justify-center hover:text-[#194F34] disabled:opacity-25"
                   >
-                    <ArrowUp className="w-3.5 h-3.5" />
+                    <ArrowUp size={14} weight="bold" />
                   </button>
                   <button
                     type="button"
@@ -772,58 +1108,69 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                       next[idx + 1] = next[idx];
                       next[idx] = temp;
                       setSelectedFiles(next);
+                      setResultFile(null);
                     }}
-                    className="p-1 hover:text-[#1B4D2E] disabled:opacity-20"
+                    aria-label="Move down"
+                    className="w-8 h-8 flex items-center justify-center hover:text-[#194F34] disabled:opacity-25"
                   >
-                    <ArrowDown className="w-3.5 h-3.5" />
+                    <ArrowDown size={14} weight="bold" />
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedFiles(selectedFiles.filter((_, i) => i !== idx));
+                      setResultFile(null);
                     }}
-                    className="p-1 text-rose-600 hover:text-rose-700"
+                    aria-label="Remove file"
+                    className="w-8 h-8 flex items-center justify-center text-[#BA1A1A] hover:opacity-80"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash size={14} weight="bold" />
                   </button>
                 </div>
               </div>
             ))}
+            {toolId === 'merge-pdf' && selectedFiles.length < 2 && (
+              <p className="text-[11.5px] text-[#545D56] pt-1">
+                Tap <strong>+ Add More</strong> to select at least 2 PDF files to merge.
+              </p>
+            )}
           </div>
         )}
 
         {/* Selected Single File Summary */}
         {selectedFiles.length === 1 && !currentMeta.multi && (
-          <div className="p-3.5 rounded-2xl bg-white border border-[#1B4D2E]/15 shadow-2xs flex items-center justify-between">
+          <div className="p-3.5 rounded-2xl bg-white border border-outline-variant/60 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center shrink-0">
-                <FileText className="w-4.5 h-4.5" />
+              <div className="w-10 h-10 rounded-xl bg-[#EAF3ED] text-[#194F34] flex items-center justify-center shrink-0">
+                <FileText size={18} weight="bold" aria-hidden="true" />
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-xs font-bold text-[#191C1A] truncate max-w-[200px]">
+                <span className="text-[12.5px] font-bold text-[#191C1A] truncate max-w-[200px]">
                   {selectedFiles[0].name}
                 </span>
-                <span className="text-[11px] text-[#545D56]">
-                  {(selectedFiles[0].size / (1024 * 1024)).toFixed(2)} MB
+                <span className="text-[11px] text-[#545D56] tabular-nums">
+                  {formatToolFileSize(selectedFiles[0].size)}
                   {pdfPageCount > 0 ? ` · ${pdfPageCount} pages` : ''}
                 </span>
               </div>
             </div>
             <button
               type="button"
-              onClick={() => setSelectedFiles([])}
-              className="text-xs text-[#545D56] hover:text-rose-600"
+              onClick={() => {
+                setSelectedFiles([]);
+                setResultFile(null);
+                setCompressionStats(null);
+              }}
+              className="text-xs font-semibold text-[#545D56] hover:text-[#BA1A1A] px-2 py-1"
             >
               Clear
             </button>
           </div>
         )}
 
-        {/* Specific Tool Configurations */}
-
         {/* 1. Compress Options */}
         {toolId === 'compress-pdf' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Compression Strength</span>
             <div className="grid grid-cols-3 gap-2">
               {(['low', 'medium', 'high'] as const).map((lvl) => (
@@ -831,14 +1178,14 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   key={lvl}
                   type="button"
                   onClick={() => setCompressLevel(lvl)}
-                  className={`p-2.5 rounded-2xl border text-center transition-all ${
+                  className={`min-h-[54px] p-2.5 rounded-xl border text-center transition-all ${
                     compressLevel === lvl
-                      ? 'border-[#1B4D2E] bg-[#EDF5F0] font-bold text-[#1B4D2E]'
-                      : 'border-black/10 bg-white text-[#545D56]'
+                      ? 'border-[#194F34] bg-[#EAF3ED] font-bold text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
                   }`}
                 >
                   <div className="text-xs capitalize">{lvl}</div>
-                  <div className="text-[10px] opacity-75">
+                  <div className="text-[10px] opacity-80">
                     {lvl === 'low' ? 'Best Quality' : lvl === 'medium' ? 'Balanced' : 'Smallest'}
                   </div>
                 </button>
@@ -847,9 +1194,9 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           </div>
         )}
 
-        {/* 2. Pages Per Sheet (N-Up) Options */}
+        {/* 2. Pages Per Sheet (N-Up) */}
         {toolId === 'pages-per-sheet' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Layout Selection</span>
             <div className="grid grid-cols-2 gap-2">
               {[2, 4].map((num) => (
@@ -857,15 +1204,15 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   key={num}
                   type="button"
                   onClick={() => setNUpMode(num as 2 | 4)}
-                  className={`p-3 rounded-2xl border text-center transition-all ${
+                  className={`p-3 rounded-xl border text-center transition-all ${
                     nUpMode === num
-                      ? 'border-[#1B4D2E] bg-[#EDF5F0] font-bold text-[#1B4D2E]'
-                      : 'border-black/10 bg-white text-[#545D56]'
+                      ? 'border-[#194F34] bg-[#EAF3ED] font-bold text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
                   }`}
                 >
-                  <div className="text-sm font-bold">{num} Pages / Sheet</div>
-                  <div className="text-[10px] text-[#545D56] mt-0.5">
-                    {num === 2 ? 'Landscape Side-by-side' : 'Portrait 2x2 Grid'}
+                  <div className="text-sm font-bold tabular-nums">{num} Pages / Sheet</div>
+                  <div className="text-[10.5px] text-[#545D56] mt-0.5">
+                    {num === 2 ? 'Landscape 2-up' : 'Portrait 2×2 grid'}
                   </div>
                 </button>
               ))}
@@ -875,9 +1222,9 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
         {/* 3. Rotate Pages Grid */}
         {toolId === 'rotate-pages' && pdfPageCount > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
-            <div className="flex items-center justify-between pb-2 border-b border-black/[0.06]">
-              <span className="text-xs font-bold text-[#191C1A]">Tap to Rotate (90°)</span>
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+            <div className="flex items-center justify-between pb-2 border-b border-outline-variant/40">
+              <span className="text-xs font-bold text-[#191C1A]">Tap Page to Rotate (+90°)</span>
               <button
                 type="button"
                 onClick={() => {
@@ -887,7 +1234,7 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   }
                   setPageRotations(all);
                 }}
-                className="text-[11px] font-semibold text-[#1B4D2E]"
+                className="text-[11.5px] font-semibold text-[#194F34]"
               >
                 Rotate All +90°
               </button>
@@ -906,15 +1253,19 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                         [p]: ((prev[p] || 0) + 90) % 360,
                       }));
                     }}
-                    className="p-2 rounded-xl bg-[#F8FAF8] border border-black/10 flex flex-col items-center gap-1 hover:border-[#1B4D2E]"
+                    className="p-2 rounded-xl bg-[#F8FAF6] border border-outline-variant/50 flex flex-col items-center gap-1 hover:border-[#194F34]"
                   >
                     <div
-                      className="w-8 h-10 bg-white rounded-xs border shadow-2xs flex items-center justify-center text-[10px] font-bold text-[#1B4D2E] transition-transform"
+                      className="w-8 h-10 bg-white rounded-xs border flex items-center justify-center text-[10px] font-bold text-[#194F34] transition-transform tabular-nums overflow-hidden"
                       style={{ transform: `rotate(${rot}deg)` }}
                     >
-                      {p}
+                      {pageThumbnails[p] ? (
+                        <img src={pageThumbnails[p]} alt={`Page ${p}`} className="w-full h-full object-contain" />
+                      ) : (
+                        p
+                      )}
                     </div>
-                    <span className="text-[10px] text-[#545D56]">{rot}°</span>
+                    <span className="text-[10px] text-[#545D56] tabular-nums">{rot}°</span>
                   </button>
                 );
               })}
@@ -924,8 +1275,8 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
         {/* 4. Delete Pages Grid */}
         {toolId === 'delete-pages' && pdfPageCount > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
-            <span className="text-xs font-bold text-[#191C1A]">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+            <span className="text-xs font-bold text-[#191C1A] tabular-nums">
               Tap Pages to Remove ({pagesToDelete.length} selected)
             </span>
             <div className="grid grid-cols-4 gap-2">
@@ -944,13 +1295,13 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                     className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all ${
                       isMarked
                         ? 'border-rose-400 bg-rose-50 text-rose-700'
-                        : 'border-black/10 bg-[#F8FAF8] text-[#191C1A]'
+                        : 'border-outline-variant/50 bg-[#F8FAF6] text-[#191C1A]'
                     }`}
                   >
-                    <div className="w-8 h-10 bg-white rounded-xs border flex items-center justify-center text-[11px] font-bold">
-                      {isMarked ? <Trash2 className="w-4 h-4 text-rose-600" /> : p}
+                    <div className="w-8 h-10 bg-white rounded-xs border flex items-center justify-center text-[11px] font-bold tabular-nums">
+                      {isMarked ? <Trash size={14} weight="bold" className="text-rose-600" /> : p}
                     </div>
-                    <span className="text-[10px]">{isMarked ? 'Delete' : `Page ${p}`}</span>
+                    <span className="text-[10px] tabular-nums">{isMarked ? 'Delete' : `Page ${p}`}</span>
                   </button>
                 );
               })}
@@ -958,32 +1309,193 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           </div>
         )}
 
-        {/* 5. Blank Page Removal Status */}
+        {/* 5. Split PDF Selection Grid */}
+        {toolId === 'split-pdf' && pdfPageCount > 0 && (
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2 pb-2 border-b border-outline-variant/40">
+              <span className="text-xs font-bold text-[#191C1A] tabular-nums">
+                Select Pages to Extract ({splitSelectedPages.length})
+              </span>
+              <div className="flex items-center gap-2 text-[11px] font-semibold text-[#194F34]">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSplitSelectedPages(
+                      Array.from({ length: pdfPageCount }, (_, i) => i + 1).filter((p) => p % 2 === 1)
+                    )
+                  }
+                  className="hover:underline"
+                >
+                  Odd
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSplitSelectedPages(
+                      Array.from({ length: pdfPageCount }, (_, i) => i + 1).filter((p) => p % 2 === 0)
+                    )
+                  }
+                  className="hover:underline"
+                >
+                  Even
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitSelectedPages([])}
+                  className="text-[#545D56] hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {Array.from({ length: pdfPageCount }, (_, i) => i + 1).map((p) => {
+                const isSelected = splitSelectedPages.includes(p);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      Haptics.buttonPress();
+                      setSplitSelectedPages((prev) =>
+                        prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+                      );
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all ${
+                      isSelected
+                        ? 'border-[#194F34] bg-[#EAF3ED] text-[#194F34]'
+                        : 'border-outline-variant/50 bg-[#F8FAF6] text-[#191C1A]'
+                    }`}
+                  >
+                    <div className="w-8 h-10 bg-white rounded-xs border flex items-center justify-center text-[11px] font-bold tabular-nums overflow-hidden">
+                      {pageThumbnails[p] ? (
+                        <img src={pageThumbnails[p]} alt={`Page ${p}`} className="w-full h-full object-contain" />
+                      ) : (
+                        p
+                      )}
+                    </div>
+                    <span className="text-[10px] font-semibold tabular-nums">Page {p}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 6. Reorder Pages Controls */}
+        {toolId === 'reorder-pages' && reorderedPages.length > 0 && (
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between pb-2 border-b border-outline-variant/40">
+              <span className="text-xs font-bold text-[#191C1A]">
+                Arrange Print Sequence
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setReorderedPages(Array.from({ length: pdfPageCount }, (_, i) => i + 1))
+                }
+                className="text-[11px] font-semibold text-[#194F34]"
+              >
+                Reset Order
+              </button>
+            </div>
+            <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto">
+              {reorderedPages.map((origP, idx) => (
+                <div
+                  key={origP}
+                  className="flex items-center justify-between p-2 rounded-xl bg-[#F8FAF6] border border-outline-variant/40"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-md bg-[#EAF3ED] text-[#194F34] text-[11px] font-bold flex items-center justify-center tabular-nums">
+                      {idx + 1}
+                    </span>
+                    <span className="text-xs font-semibold text-[#191C1A] tabular-nums">
+                      Original Page {origP}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => moveReorderedPage(idx, -1)}
+                      aria-label={`Move page ${origP} up`}
+                      className="w-9 h-9 rounded-lg bg-white border border-outline-variant/45 flex items-center justify-center text-[#191C1A] disabled:opacity-30"
+                    >
+                      <ArrowUp size={14} weight="bold" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === reorderedPages.length - 1}
+                      onClick={() => moveReorderedPage(idx, 1)}
+                      aria-label={`Move page ${origP} down`}
+                      className="w-9 h-9 rounded-lg bg-white border border-outline-variant/45 flex items-center justify-center text-[#191C1A] disabled:opacity-30"
+                    >
+                      <ArrowDown size={14} weight="bold" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 7. Crop PDF Margin Presets */}
+        {toolId === 'crop-pages' && selectedFiles.length > 0 && (
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+            <span className="text-xs font-bold text-[#191C1A]">Margin Trim Amount</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { pt: 10, label: 'Subtle (10 pt)', desc: 'Trim scanner borders' },
+                { pt: 20, label: 'Standard (20 pt)', desc: 'Balanced edge trim' },
+                { pt: 35, label: 'Medium (35 pt)', desc: 'Tighter content frame' },
+                { pt: 50, label: 'Deep (50 pt)', desc: 'Remove wide margins' },
+              ].map((opt) => (
+                <button
+                  key={opt.pt}
+                  type="button"
+                  onClick={() => setCropMarginPt(opt.pt)}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    cropMarginPt === opt.pt
+                      ? 'border-[#194F34] bg-[#EAF3ED] text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{opt.label}</div>
+                  <div className="text-[10.5px] opacity-80">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 8. Blank Page Removal Status */}
         {toolId === 'blank-page-removal' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Blank Page Detection</span>
             {detectedBlanks.length > 0 ? (
-              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col gap-2">
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col gap-1.5">
                 <div className="flex items-center gap-1.5 font-bold">
-                  <AlertCircle className="w-4 h-4 text-amber-600" />
-                  <span>Found {detectedBlanks.length} blank page(s): {detectedBlanks.join(', ')}</span>
+                  <WarningCircle size={16} weight="fill" className="text-amber-600" />
+                  <span className="tabular-nums">
+                    Found {detectedBlanks.length} blank page(s): {detectedBlanks.join(', ')}
+                  </span>
                 </div>
                 <p className="text-[11px] text-amber-800">
-                  Removing blank pages saves paper and reduces printing costs at Kiosk #04.
+                  Removing blank pages avoids unnecessary billing at {session.activeStation.name}.
                 </p>
               </div>
             ) : (
-              <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-3 rounded-xl bg-[#EAF3ED] border border-[#194F34]/15 text-xs text-[#194F34] flex items-center gap-2 font-medium">
+                <CheckCircle size={16} weight="fill" className="text-[#194F34]" />
                 <span>No blank pages detected in this document.</span>
               </div>
             )}
           </div>
         )}
 
-        {/* 6. Passport Photo Count */}
+        {/* 9. Passport Photo Count */}
         {toolId === 'passport-photo' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Number of Photos on A4 Sheet</span>
             <div className="grid grid-cols-2 gap-2">
               {[6, 8].map((c) => (
@@ -991,53 +1503,82 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   key={c}
                   type="button"
                   onClick={() => setPassportCount(c as 6 | 8)}
-                  className={`p-3 rounded-2xl border text-center transition-all ${
+                  className={`p-3 rounded-xl border text-center transition-all ${
                     passportCount === c
-                      ? 'border-[#1B4D2E] bg-[#EDF5F0] font-bold text-[#1B4D2E]'
-                      : 'border-black/10 bg-white text-[#545D56]'
+                      ? 'border-[#194F34] bg-[#EAF3ED] font-bold text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
                   }`}
                 >
-                  <div className="text-sm font-bold">{c} Passport Photos</div>
-                  <div className="text-[10px] text-[#545D56]">Standard 35 × 45 mm</div>
+                  <div className="text-sm font-bold tabular-nums">{c} Passport Photos</div>
+                  <div className="text-[10.5px] text-[#545D56]">Standard 35 × 45 mm</div>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* 7. Resize Image Inputs */}
+        {/* 10. Image Crop Presets */}
+        {toolId === 'image-crop' && selectedFiles.length > 0 && (
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+            <span className="text-xs font-bold text-[#191C1A]">Crop Aspect Ratio</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'square', label: '1:1 Square', desc: 'Centered square frame' },
+                { id: 'landscape_4_3', label: '4:3 Landscape', desc: 'Standard photo framing' },
+                { id: 'portrait_3_4', label: '3:4 Portrait', desc: 'Vertical ID & document' },
+                { id: 'trim_10', label: 'Trim 10% Edges', desc: 'Remove outer borders' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setImageCropPreset(opt.id as ImageCropPreset)}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    imageCropPreset === opt.id
+                      ? 'border-[#194F34] bg-[#EAF3ED] text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{opt.label}</div>
+                  <div className="text-[10.5px] opacity-80">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 11. Resize Image Inputs */}
         {toolId === 'resize-image' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Custom Pixel Dimensions</span>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-[#545D56] font-semibold">Width (px)</label>
+                <label className="text-[11px] text-[#545D56] font-semibold">Width (px)</label>
                 <input
                   type="number"
                   value={resizeWidth}
                   onChange={(e) => {
-                    const w = parseInt(e.target.value) || 0;
+                    const w = parseInt(e.target.value, 10) || 0;
                     setResizeWidth(w);
                     if (keepAspect && originalAspect > 0) {
                       setResizeHeight(Math.round(w / originalAspect));
                     }
                   }}
-                  className="w-full mt-1 p-2 rounded-xl border border-black/15 text-xs font-bold"
+                  className="w-full mt-1 h-10 px-2.5 rounded-xl border border-outline-variant/70 text-xs font-bold tabular-nums"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-[#545D56] font-semibold">Height (px)</label>
+                <label className="text-[11px] text-[#545D56] font-semibold">Height (px)</label>
                 <input
                   type="number"
                   value={resizeHeight}
                   onChange={(e) => {
-                    const h = parseInt(e.target.value) || 0;
+                    const h = parseInt(e.target.value, 10) || 0;
                     setResizeHeight(h);
                     if (keepAspect && originalAspect > 0) {
                       setResizeWidth(Math.round(h * originalAspect));
                     }
                   }}
-                  className="w-full mt-1 p-2 rounded-xl border border-black/15 text-xs font-bold"
+                  className="w-full mt-1 h-10 px-2.5 rounded-xl border border-outline-variant/70 text-xs font-bold tabular-nums"
                 />
               </div>
             </div>
@@ -1046,16 +1587,16 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                 type="checkbox"
                 checked={keepAspect}
                 onChange={(e) => setKeepAspect(e.target.checked)}
-                className="rounded-xs text-[#1B4D2E]"
+                className="rounded-xs text-[#194F34]"
               />
               <span>Maintain Aspect Ratio</span>
             </label>
           </div>
         )}
 
-        {/* 8. Image Format Converter */}
+        {/* 12. Image Format Converter */}
         {toolId === 'image-format-converter' && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
             <span className="text-xs font-bold text-[#191C1A]">Target Output Format</span>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -1066,11 +1607,11 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                 <button
                   key={fmt.mime}
                   type="button"
-                  onClick={() => setTargetFormat(fmt.mime as any)}
-                  className={`p-3 rounded-2xl border text-center transition-all ${
+                  onClick={() => setTargetFormat(fmt.mime as 'image/jpeg' | 'image/png' | 'image/webp')}
+                  className={`min-h-[44px] p-3 rounded-xl border text-center transition-all ${
                     targetFormat === fmt.mime
-                      ? 'border-[#1B4D2E] bg-[#EDF5F0] font-bold text-[#1B4D2E]'
-                      : 'border-black/10 bg-white text-[#545D56]'
+                      ? 'border-[#194F34] bg-[#EAF3ED] font-bold text-[#194F34]'
+                      : 'border-outline-variant/55 bg-white text-[#545D56]'
                   }`}
                 >
                   <span className="text-xs font-bold">{fmt.label}</span>
@@ -1080,76 +1621,122 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
           </div>
         )}
 
-        {/* 9. Image Enhancement Presets */}
-        {(toolId === 'image-enhancement' || toolId === 'scan-enhancement') && selectedFiles.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
-            <span className="text-xs font-bold text-[#191C1A]">Enhancement Filter</span>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: 'document', name: 'Document Clean', desc: 'High contrast text' },
-                { id: 'bw', name: 'B&W Scan', desc: 'Clean black & white' },
-                { id: 'auto', name: 'Auto Clarity', desc: 'Balanced sharpening' },
-                { id: 'vivid', name: 'Vivid Photo', desc: 'Richer saturation' },
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setEnhancePreset(p.id as any)}
-                  className={`p-2.5 rounded-2xl border text-left transition-all ${
-                    enhancePreset === p.id
-                      ? 'border-[#1B4D2E] bg-[#EDF5F0] font-bold text-[#1B4D2E]'
-                      : 'border-black/10 bg-white text-[#545D56]'
-                  }`}
-                >
-                  <div className="text-xs font-bold">{p.name}</div>
-                  <div className="text-[10px] text-[#545D56]">{p.desc}</div>
-                </button>
-              ))}
+        {/* 13. Image Enhancement Presets */}
+        {(toolId === 'image-enhancement' || toolId === 'scan-enhancement') &&
+          selectedFiles.length > 0 && (
+            <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3">
+              <span className="text-xs font-bold text-[#191C1A]">Enhancement Filter</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'document', name: 'Document Clean', desc: 'High contrast text' },
+                  { id: 'bw', name: 'B&W Scan', desc: 'Clean black & white' },
+                  { id: 'auto', name: 'Auto Clarity', desc: 'Balanced sharpening' },
+                  { id: 'vivid', name: 'Vivid Photo', desc: 'Richer saturation' },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setEnhancePreset(p.id as 'auto' | 'document' | 'bw' | 'vivid')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      enhancePreset === p.id
+                        ? 'border-[#194F34] bg-[#EAF3ED] font-bold text-[#194F34]'
+                        : 'border-outline-variant/55 bg-white text-[#545D56]'
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{p.name}</div>
+                    <div className="text-[10.5px] text-[#545D56]">{p.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Process Button */}
-        {(selectedFiles.length > 0 || idFrontFile) && !resultFile && jpgResults.length === 0 && (
-          <button
-            type="button"
-            onClick={handleExecuteTool}
-            disabled={isProcessing}
-            className="w-full h-12 rounded-2xl bg-[#1B4D2E] hover:bg-[#25633C] text-white font-semibold text-sm shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
-          >
-            {isProcessing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Processing {progress > 0 ? `${progress}%` : '...'}</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Run {currentMeta.title}</span>
-              </>
-            )}
-          </button>
-        )}
+        {(selectedFiles.length > 0 || idFrontFile) &&
+          !resultFile &&
+          jpgResults.length === 0 && (
+            <button
+              type="button"
+              onClick={handleExecuteTool}
+              disabled={isProcessing}
+              className="w-full min-h-[48px] rounded-xl bg-[#194F34] hover:bg-[#143F2A] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              {isProcessing ? (
+                <>
+                  <ArrowsClockwise size={17} weight="bold" className="animate-spin" />
+                  <span className="tabular-nums">
+                    Processing {progress > 0 ? `${progress}%` : '...'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Play size={16} weight="fill" aria-hidden="true" />
+                  <span>Run {currentMeta.title}</span>
+                </>
+              )}
+            </button>
+          )}
 
         {/* Result Action Stage */}
         {resultFile && (
-          <div className="p-4 rounded-3xl bg-white border border-emerald-500/30 shadow-md flex flex-col gap-3 animate-apple-card">
-            <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{currentMeta.title} Completed Successfully!</span>
-            </div>
-            <div className="text-xs text-[#545D56]">
-              Output: <strong className="text-[#191C1A]">{resultFile.name}</strong> (
-              {(resultFile.size / (1024 * 1024)).toFixed(2)} MB)
+          <div className="p-4 rounded-2xl bg-white border border-[#194F34]/25 flex flex-col gap-3 animate-view-enter">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[#194F34] font-bold text-xs">
+                <CheckCircle size={18} weight="fill" aria-hidden="true" />
+                <span>{currentMeta.title} Ready</span>
+              </div>
+              {resultPageCount !== null && (
+                <span className="px-2 py-0.5 rounded-md bg-[#EAF3ED] text-[#194F34] text-[11px] font-semibold tabular-nums">
+                  {resultPageCount} {resultPageCount === 1 ? 'page' : 'pages'}
+                </span>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-2">
+            {/* Resulting Document / Image Preview */}
+            {(isRenderingResultPreview || resultPreviewUrl) && (
+              <div className="rounded-xl bg-[#F8FAF6] border border-[#E2E7E1] p-2.5 flex flex-col items-center justify-center">
+                {isRenderingResultPreview ? (
+                  <div className="py-8 flex items-center gap-2 text-xs text-[#545D56]">
+                    <ArrowsClockwise size={15} weight="bold" className="animate-spin text-[#194F34]" />
+                    <span>Rendering preview...</span>
+                  </div>
+                ) : resultPreviewUrl ? (
+                  <img
+                    src={resultPreviewUrl}
+                    alt={`Preview of ${resultFile.name}`}
+                    className="max-h-60 w-auto rounded-lg border border-[#E2E7E1] bg-white object-contain"
+                  />
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1 text-xs text-[#545D56] tabular-nums">
+              <div className="truncate">
+                File: <strong className="text-[#191C1A]">{resultFile.name}</strong> (
+                {formatToolFileSize(resultFile.size)})
+              </div>
+              {compressionStats && (
+                <div className="text-[11.5px] font-semibold text-[#194F34]">
+                  {formatCompressionSummary(
+                    compressionStats.originalSize,
+                    compressionStats.newSize
+                  ).summaryText}
+                </div>
+              )}
+              {session.activeStation && (
+                <div className="text-[11px] text-[#545D56]">
+                  Paired kiosk: <strong className="text-[#191C1A]">{session.activeStation.name}</strong>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
                 onClick={handleDownloadResult}
-                className="h-11 rounded-xl bg-[#EDF5F0] hover:bg-[#E2EFE7] border border-[#1B4D2E]/20 text-[#1B4D2E] font-semibold text-xs flex items-center justify-center gap-1.5 active:scale-95"
+                className="min-h-[46px] rounded-xl bg-[#EAF3ED] hover:bg-[#DDECE2] border border-[#194F34]/15 text-[#194F34] font-semibold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
               >
-                <Download className="w-4 h-4" />
+                <DownloadSimple size={16} weight="bold" aria-hidden="true" />
                 <span>Download</span>
               </button>
 
@@ -1159,10 +1746,10 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
                   onSendToPrint(resultFile);
                   onClose();
                 }}
-                className="h-11 rounded-xl bg-[#1B4D2E] hover:bg-[#25633C] text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                className="min-h-[46px] rounded-xl bg-[#194F34] hover:bg-[#143F2A] text-white font-semibold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
               >
-                <Printer className="w-4 h-4" />
-                <span>Send to Print</span>
+                <Printer size={16} weight="bold" aria-hidden="true" />
+                <span>Add to Print Queue</span>
               </button>
             </div>
           </div>
@@ -1170,22 +1757,29 @@ export const IndividualToolModal: React.FC<IndividualToolModalProps> = ({
 
         {/* PDF to JPG Extracted Thumbnails Display */}
         {jpgResults.length > 0 && (
-          <div className="p-4 rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xs flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#191C1A]">
-                Extracted JPG Images ({jpgResults.length} pages)
-              </span>
-            </div>
+          <div className="p-4 rounded-2xl bg-white border border-outline-variant/60 flex flex-col gap-3 animate-view-enter">
+            <span className="text-xs font-bold text-[#191C1A] tabular-nums">
+              Extracted JPG Images ({jpgResults.length} pages)
+            </span>
             <div className="grid grid-cols-2 gap-2.5">
               {jpgResults.map((res) => (
-                <div key={res.pageNumber} className="p-2 rounded-2xl bg-[#F8FAF8] border border-black/10 flex flex-col gap-1.5">
-                  <img src={res.dataUrl} alt={`Page ${res.pageNumber}`} className="w-full aspect-3/4 object-contain rounded-lg bg-white border" />
+                <div
+                  key={res.pageNumber}
+                  className="p-2 rounded-xl bg-[#F8FAF6] border border-outline-variant/45 flex flex-col gap-1.5"
+                >
+                  <img
+                    src={res.dataUrl}
+                    alt={`Page ${res.pageNumber}`}
+                    className="w-full aspect-3/4 object-contain rounded-lg bg-white border"
+                  />
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-[#191C1A]">Page {res.pageNumber}</span>
+                    <span className="font-semibold text-[#191C1A] tabular-nums">
+                      Page {res.pageNumber}
+                    </span>
                     <button
                       type="button"
                       onClick={() => handleDownloadSingleJpg(res)}
-                      className="text-[#1B4D2E] font-bold hover:underline"
+                      className="text-[#194F34] font-bold hover:underline px-2 py-1"
                     >
                       Save
                     </button>

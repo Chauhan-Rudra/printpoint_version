@@ -1,91 +1,168 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { motion } from 'motion/react';
 import {
-  Upload,
+  House,
+  FolderSimple,
+  QrCode,
+  Wrench,
+  UserCircle,
+  Wallet,
+  Plus,
   Printer,
-  FolderOpen,
-  FolderUp,
-  HelpCircle,
-  AlertCircle,
+  Receipt,
   X,
-  CheckCircle2,
   MapPin,
   ShieldCheck,
-  Zap,
-  Home,
-  FileText,
-  ChevronRight,
-  Sparkles,
-  Wrench,
-  Menu,
-  House,
-  ReceiptText,
-  QrCode,
-  ScanQrCode,
-  Folder,
-  Clock,
-  Camera,
-} from 'lucide-react';
-import {
-  House as PhosphorHouse,
-  FolderSimple as PhosphorFolderSimple,
-  QrCode as PhosphorQrCode,
-  Wrench as PhosphorWrench,
-  UserCircle as PhosphorUserCircle,
-  Wallet as PhosphorWallet,
+  Lightning,
 } from '@phosphor-icons/react';
 import {
   NATIVE_FILE_ACCEPT_ATTR,
   validateSelectedFile,
+  formatInrCurrency,
 } from '../utils/kioskLogic';
+import { UploadedPrintDocument } from '../types/kiosk';
 import { Haptics } from '../utils/haptics';
 import { useKioskWallet, formatWalletBalanceInr } from '../utils/kioskWallet';
+import { useKioskSession } from '../utils/kioskSession';
 import { useUserProfile } from '../utils/userProfile';
-import { Creator4Logo } from './Creator4Logo';
+import { useKioskOrders, PrintOrderRecord } from '../utils/kioskOrders';
+import { BOTTOM_NAV_ITEMS, BottomNavTab } from '../utils/navigationConfig';
+import { useTranslation } from '../utils/i18n';
 import { ScannerModal } from './ScannerModal';
 import { AccountPage } from './AccountPage';
 import { AddMoneyModal } from './AddMoneyModal';
 import { ToolsDashboard } from './tools/ToolsDashboard';
+import { FileBrowserStep } from './FileBrowserStep';
 import { HowToPrintSection } from './HowToPrintSection';
+import {
+  PrintPointLogo,
+  Button,
+  SurfaceCard,
+  SectionHeader,
+  NavItem,
+  Divider,
+  BottomNav,
+  BottomSheet,
+  StatusIndicator,
+  EmptyState,
+  ErrorState,
+  FinancialValue,
+  DocumentMetaText,
+  pageTransitionVariants,
+  pressableTap,
+  PP_EASE,
+} from './ui';
 
 interface UploadHomeStepProps {
   onFilesSelected: (files: File[]) => void;
-  onOpenBrowser?: () => void;
-  onOpenTools?: () => void;
+  activeTab: 'home' | 'files' | 'tools' | 'account';
+  onTabChange: (tab: 'home' | 'files' | 'tools' | 'account') => void;
+  documents?: UploadedPrintDocument[];
+  onAddFilesToFilesTab?: (
+    files: File[]
+  ) =>
+    | { addedCount: number; errors: string[] }
+    | Promise<{ addedCount: number; errors: string[] }>;
+  onRemoveDocument?: (docId: string) => void;
+  onRetryDocument?: (docId: string) => void;
+  onContinueFromFiles?: () => void;
+  isScannerOpen?: boolean;
+  onScannerOpenChange?: (open: boolean) => void;
   isSheetOpen?: boolean;
 }
 
+const FolderUploadIcon: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <svg
+    width="26"
+    height="26"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      d="M3 6.8C3 5.58497 3.98497 4.6 5.2 4.6H9.2C9.78 4.6 10.33 4.86 10.7 5.3L11.95 6.85H18.8C20.015 6.85 21 7.83497 21 9.05V17.2C21 18.415 20.015 19.4 18.8 19.4H5.2C3.98497 19.4 3 18.415 3 17.2V6.8Z"
+      fill="#194F34"
+      fillOpacity="0.1"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M12 15.8V10.4M12 10.4L9.5 12.9M12 10.4L14.5 12.9"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const formatOrderDate = (timestamp: number): string => {
+  try {
+    return new Date(timestamp).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return 'Recent';
+  }
+};
+
 export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
   onFilesSelected,
-  onOpenBrowser,
-  onOpenTools,
-  isSheetOpen = false,
+  activeTab,
+  onTabChange,
+  documents = [],
+  onAddFilesToFilesTab,
+  onRemoveDocument,
+  onRetryDocument,
+  onContinueFromFiles,
+  isScannerOpen,
+  onScannerOpenChange,
 }) => {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [showHelpModal, setShowHelpModal] = useState(false);
   const [showKioskModal, setShowKioskModal] = useState(false);
-  const [showToolsModal, setShowToolsModal] = useState(false);
-  const [showMenuModal, setShowMenuModal] = useState(false);
-  const [showOrdersModal, setShowOrdersModal] = useState(false);
-  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [localScannerOpen, setLocalScannerOpen] = useState(false);
+  const [showRecentPrintsSheet, setShowRecentPrintsSheet] = useState(false);
   const [isHeaderAddMoneyOpen, setIsHeaderAddMoneyOpen] = useState(false);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'files' | 'scan' | 'tools' | 'account'>('home');
-  const previousTabRef = useRef<'home' | 'files' | 'tools' | 'account'>('home');
+
+  const showScannerModal = isScannerOpen !== undefined ? isScannerOpen : localScannerOpen;
+  const setScannerModalOpen = (open: boolean) => {
+    if (onScannerOpenChange) {
+      onScannerOpenChange(open);
+    } else {
+      setLocalScannerOpen(open);
+    }
+  };
 
   const { balance } = useKioskWallet();
+  const { session, stations } = useKioskSession();
   const { profile } = useUserProfile();
+  const { orders } = useKioskOrders();
+
+  const isAuthenticated = Boolean(profile.authenticated);
   const hasProfileImage = Boolean(profile.avatarUrl && profile.avatarUrl !== failedAvatarUrl);
+  const activeStation = session.activeStation;
+
+  const recentPrintSummary = useMemo(() => {
+    if (orders.length === 0) return 'No print history yet';
+    const latest = orders[0];
+    return `${latest.orderNumber} · ${formatInrCurrency(latest.amountInr)} · ${latest.status}`;
+  }, [orders]);
 
   const processFileList = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
     const rawFiles = Array.from(fileList);
-
-    // 1. Deduplicate identical files within the same selection batch while preserving order
     const seenInBatch = new Set<string>();
     const uniqueBatchFiles: File[] = [];
     for (const file of rawFiles) {
@@ -96,7 +173,6 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
       }
     }
 
-    // 2. Validate file format and file size
     const validFiles: File[] = [];
     const errors: string[] = [];
 
@@ -116,21 +192,13 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
       setValidationError(null);
     }
 
-    if (validFiles.length === 0) {
-      return;
-    }
+    if (validFiles.length === 0) return;
 
-    // 3. Tactile feedback & trigger upload sheet
     Haptics.selection();
     onFilesSelected(validFiles);
   };
 
   const handleNativeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    processFileList(e.target.files);
-    e.target.value = '';
-  };
-
-  const handleCameraInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     processFileList(e.target.files);
     e.target.value = '';
   };
@@ -142,51 +210,83 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
 
   const handleTriggerScan = () => {
     Haptics.buttonPress();
-    if (activeTab !== 'scan') {
-      previousTabRef.current = activeTab;
+    setScannerModalOpen(true);
+  };
+
+  const handleNavClick = (id: BottomNavTab) => {
+    Haptics.buttonPress();
+    if (id === 'scan') {
+      setScannerModalOpen(true);
+      return;
     }
-    setActiveTab('scan');
-    setShowScannerModal(true);
-  };
-
-  const handleTriggerBrowser = () => {
-    Haptics.buttonPress();
-    setActiveTab('files');
-    if (onOpenBrowser) {
-      onOpenBrowser();
-    } else {
-      fileInputRef.current?.click();
-    }
-  };
-
-  const handleTriggerOrders = () => {
-    Haptics.buttonPress();
-    setShowOrdersModal(true);
-  };
-
-  const handleTriggerTools = () => {
-    Haptics.buttonPress();
-    setActiveTab('tools');
-    if (onOpenTools) {
-      onOpenTools();
-    }
-  };
-
-  const handleTriggerAccount = () => {
-    Haptics.buttonPress();
-    setActiveTab('account');
+    setScannerModalOpen(false);
+    onTabChange(id);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
-  const handleScrollToTop = () => {
-    Haptics.buttonPress();
-    setActiveTab('home');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const navLabelForTab = (id: BottomNavTab, fallback: string) => {
+    switch (id) {
+      case 'home':
+        return t.navHome;
+      case 'files':
+        return t.navFiles;
+      case 'scan':
+        return t.navScan;
+      case 'tools':
+        return t.navTools;
+      case 'account':
+        return t.navAccount;
+      default:
+        return fallback;
+    }
+  };
+
+  const bottomNavItems = useMemo(
+    () =>
+      BOTTOM_NAV_ITEMS.map((item) => ({
+        id: item.id,
+        label: navLabelForTab(item.id, item.label),
+        ariaLabel: item.ariaLabel,
+        isPrimary: item.isPrimary,
+        renderIcon: (isActive: boolean) => {
+          const weight = isActive ? 'fill' : 'regular';
+          const iconSize = item.isPrimary ? 21 : 22;
+          switch (item.iconName) {
+            case 'House':
+              return <House size={iconSize} weight={weight} aria-hidden="true" />;
+            case 'FolderSimple':
+              return <FolderSimple size={iconSize} weight={weight} aria-hidden="true" />;
+            case 'QrCode':
+              return <QrCode size={iconSize} weight={weight} aria-hidden="true" />;
+            case 'Wrench':
+              return <Wrench size={iconSize} weight={weight} aria-hidden="true" />;
+            case 'UserCircle':
+              return <UserCircle size={iconSize} weight={weight} aria-hidden="true" />;
+            default:
+              return <House size={iconSize} weight={weight} aria-hidden="true" />;
+          }
+        },
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t]
+  );
+
+  const renderOrderStatusTone = (status: PrintOrderRecord['status']) => {
+    if (status === 'Printed') return 'success' as const;
+    if (
+      status === 'Refunded' ||
+      status === 'Queued' ||
+      status === 'Claimed' ||
+      status === 'Printing'
+    ) {
+      return 'info' as const;
+    }
+    return 'error' as const;
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full bg-[#F8FAF8] text-[#191C1A]">
-      {/* Hidden Accessible File Inputs */}
+    <div className="flex flex-col flex-1 w-full bg-[#F8FAF6] text-[#191C1A] overflow-x-hidden">
+      {/* Hidden Accessible Native File Input */}
       <input
         ref={fileInputRef}
         id="qr-document-upload"
@@ -198,88 +298,114 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
         className="sr-only"
         tabIndex={-1}
       />
-      <input
-        ref={cameraInputRef}
-        id="camera-document-upload"
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        onChange={handleCameraInputChange}
-        className="sr-only"
-        tabIndex={-1}
-      />
 
-      {activeTab === 'tools' ? (
-        <ToolsDashboard
-          onBackToHome={() => {
-            setActiveTab('home');
-            window.scrollTo({ top: 0, behavior: 'instant' });
-          }}
-          onSendToPrint={(files) => onFilesSelected(files)}
-        />
-      ) : activeTab === 'account' ? (
-        <AccountPage
-          onOpenOrders={() => setShowOrdersModal(true)}
-          onOpenBrowser={() => handleTriggerBrowser()}
-          onOpenStationDetails={() => setShowKioskModal(true)}
-          onOpenHelp={() => setShowHelpModal(true)}
-        />
-      ) : (
+      <div className="flex flex-col flex-1 w-full pb-safe">
+        {activeTab === 'tools' ? (
+          <div className="flex flex-col flex-1 w-full pb-4">
+            <ToolsDashboard
+              onBackToHome={() => {
+                onTabChange('home');
+                window.scrollTo({ top: 0, behavior: 'instant' });
+              }}
+              onSendToPrint={(files) => onFilesSelected(files)}
+            />
+          </div>
+        ) : activeTab === 'account' ? (
+          <AccountPage
+            onOpenBrowser={() => onTabChange('files')}
+            onOpenScanner={handleTriggerScan}
+            onBackToHome={() => {
+              onTabChange('home');
+              window.scrollTo({ top: 0, behavior: 'instant' });
+            }}
+          />
+        ) : activeTab === 'files' ? (
+          <div className="w-full max-w-md md:max-w-3xl lg:max-w-4xl mx-auto px-4 pt-3 flex-1 flex flex-col">
+            <FileBrowserStep
+              embeddedInTab={true}
+              documents={documents}
+              onAddFiles={
+                onAddFilesToFilesTab ??
+                (async (files) => {
+                  onFilesSelected(files);
+                  return { addedCount: files.length, errors: [] };
+                })
+              }
+              onRemoveDocument={onRemoveDocument ?? (() => {})}
+              onRetryDocument={onRetryDocument ?? (() => {})}
+              onContinue={onContinueFromFiles ?? (() => {})}
+              onBack={() => onTabChange('home')}
+            />
+          </div>
+        ) : (
         <>
-          {/* 1. Header Section: Brand Logo (Left) + Wallet Balance Pill & Account Profile (Right) */}
-          <header className="sticky top-0 z-40 w-full pt-safe bg-white/95 backdrop-blur-md border-b border-black/[0.05] transition-all">
-            <div className="h-16 px-4 flex items-center justify-between gap-3 max-w-md mx-auto w-full">
-              {/* Left: Brand Logo + Brand Name */}
+          {/* 1. Compact Header: Print Point Logo (Left) + Wallet Balance & Add Money + Profile (Right) */}
+          <header className="sticky top-0 z-30 w-full pt-safe bg-white border-b border-[#E4EAE5]">
+            <div className="h-16 px-4 flex items-center justify-between gap-2 max-w-4xl mx-auto w-full">
               <button
                 type="button"
-                onClick={handleScrollToTop}
+                onClick={() => {
+                  Haptics.buttonPress();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
                 aria-label="Print Point Home"
-                title="Go to Home"
-                className="inline-flex items-center gap-2.5 text-left min-w-0 group cursor-pointer active:scale-[0.98] transition-transform duration-150"
+                className="inline-flex items-center gap-2.5 text-left min-w-0 shrink-0 cursor-pointer active:scale-[0.98] transition-transform"
               >
-                <Creator4Logo
-                  size="md"
-                  interactive={false}
-                  className="[&>div]:w-10 [&>div]:h-10 [&>div]:rounded-[12px] shrink-0"
-                />
-                <h1 className="text-[16px] sm:text-[17px] font-black text-[#191C1A] tracking-tight leading-none group-hover:text-[#1B4D2E] transition-colors whitespace-nowrap">
-                  Print <span className="text-[#1B4D2E]">Point</span>
-                </h1>
+                <PrintPointLogo size="md" interactive={false} className="shrink-0" />
+                <span className="text-[16px] sm:text-[17px] font-bold text-[#191C1A] tracking-tight leading-none whitespace-nowrap">
+                  Print <span className="text-[#194F34]">Point</span>
+                </span>
               </button>
 
-              {/* Right: Wallet Balance Pill + Circular Account Photo / Initials */}
-              <div className="flex items-center gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    Haptics.buttonPress();
-                    setIsHeaderAddMoneyOpen(true);
-                  }}
-                  aria-label={`Wallet balance ${formatWalletBalanceInr(balance)}`}
-                  className="h-10 sm:h-11 inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-full bg-[#F3F0E6] border border-[#194F34]/12 px-3 sm:px-3.5 shadow-[0_1px_2px_rgba(25,79,52,0.04)] hover:bg-[#ECE8DC] active:scale-[0.97] transition-all duration-150 cursor-pointer"
-                >
-                  <PhosphorWallet
-                    size={18}
-                    weight="fill"
-                    className="text-[#194F34] shrink-0 sm:w-5 sm:h-5"
-                    aria-hidden="true"
-                  />
-                  <span
-                    data-testid="header-wallet-balance"
-                    className="text-[13.5px] sm:text-[15px] font-bold tracking-tight text-[#202722] tabular-nums leading-none whitespace-nowrap"
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Compact Wallet Balance Container + Circular Add Money (+) Button */}
+                <div className="h-10 rounded-full bg-[#EAF3ED] border border-[#194F34]/15 pl-3 pr-1 flex items-center gap-2 shrink-0">
+                  <motion.button
+                    type="button"
+                    whileTap={pressableTap.whileTap}
+                    onClick={() => {
+                      Haptics.buttonPress();
+                      setIsHeaderAddMoneyOpen(true);
+                    }}
+                    aria-label={`Wallet balance ${formatWalletBalanceInr(balance)}. Tap to add money`}
+                    className="inline-flex items-center gap-1.5 h-full cursor-pointer"
                   >
-                    {formatWalletBalanceInr(balance)}
-                  </span>
-                </button>
+                    <Wallet size={16} weight="fill" className="text-[#194F34] shrink-0" aria-hidden="true" />
+                    <span
+                      data-testid="header-wallet-balance"
+                      className="text-[13.5px] font-bold tracking-tight text-[#191C1A] tabular-nums leading-none whitespace-nowrap"
+                    >
+                      {formatWalletBalanceInr(balance)}
+                    </span>
+                  </motion.button>
 
-                {/* Circular Account Profile Image / Initials Button */}
-                <button
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => {
+                      Haptics.buttonPress();
+                      setIsHeaderAddMoneyOpen(true);
+                    }}
+                    aria-label="Add Money to Wallet"
+                    className="w-8 h-8 rounded-full bg-[#194F34] text-white flex items-center justify-center hover:bg-[#143F2A] transition-colors shrink-0 cursor-pointer"
+                  >
+                    <Plus size={15} weight="bold" aria-hidden="true" />
+                  </motion.button>
+                </div>
+
+                {/* Circular Profile Image / Initials / Sign In */}
+                <motion.button
                   type="button"
-                  onClick={handleTriggerAccount}
-                  aria-label={`Open account for ${profile.name}`}
-                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-[#194F34]/15 bg-[#EAF3ED] text-[#194F34] flex items-center justify-center shrink-0 shadow-2xs hover:ring-2 hover:ring-[#194F34]/20 active:scale-95 transition-all duration-150 cursor-pointer"
+                  whileTap={{ scale: 0.94 }}
+                  onClick={() => handleNavClick('account')}
+                  aria-label={
+                    isAuthenticated && profile.name
+                      ? `Open account for ${profile.name}`
+                      : 'Sign in to Print Point Account'
+                  }
+                  className="w-10 h-10 rounded-full overflow-hidden border border-[#194F34]/20 bg-[#EAF3ED] text-[#194F34] flex items-center justify-center shrink-0 cursor-pointer"
                 >
-                  {hasProfileImage ? (
+                  {isAuthenticated && hasProfileImage ? (
                     <img
                       src={profile.avatarUrl}
                       alt={`${profile.name} profile`}
@@ -289,383 +415,178 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
                   ) : (
                     <span
                       data-testid="header-profile-initials"
-                      className="text-[14px] sm:text-[15px] font-bold tracking-tight text-[#194F34] select-none leading-none"
+                      className="text-[12.5px] font-bold tracking-tight text-[#194F34] select-none leading-none"
                     >
-                      {profile.initials}
+                      {isAuthenticated ? profile.initials : 'Sign In'}
                     </span>
                   )}
-                </button>
+                </motion.button>
               </div>
             </div>
           </header>
 
-      {/* Main Home Screen Content */}
-      <div className="flex flex-col flex-1 w-full max-w-md mx-auto px-4 pt-4 pb-28 animate-apple-reveal">
-        {/* Validation Error Banner */}
-        {validationError && (
-          <div
-            role="alert"
-            data-testid="file-validation-error"
-            className="mb-4 px-3.5 py-3 rounded-2xl bg-error-container/90 border border-error/25 text-on-error-container flex items-start justify-between gap-2.5 animate-apple-card shadow-2xs"
+          {/* Main Home Screen Content */}
+          <motion.main
+            variants={pageTransitionVariants}
+            initial="initial"
+            animate="animate"
+            className="flex-1 w-full max-w-md md:max-w-3xl lg:max-w-4xl mx-auto px-4 pt-4 pb-28"
           >
-            <div className="flex items-start gap-2 min-w-0">
-              <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
-              <span className="text-[12px] font-semibold leading-snug">
-                {validationError}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setValidationError(null)}
-              aria-label="Dismiss error"
-              className="w-6 h-6 rounded-lg hover:bg-black/5 flex items-center justify-center shrink-0 text-on-error-container"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+            {validationError && (
+              <div className="mb-4" data-testid="file-validation-error">
+                <ErrorState
+                  variant="banner"
+                  message={validationError}
+                  onDismiss={() => setValidationError(null)}
+                />
+              </div>
+            )}
 
-        {/* 1. Redesigned Add Documents Hero Card */}
-        <section aria-label="Add Documents" className="mb-4">
-          <div className="w-full rounded-[24px] bg-white border border-[#194F34]/12 shadow-[0_10px_28px_-10px_rgba(25,79,52,0.14)] p-2.5 sm:p-3">
-            {/* Tactile Botanical Upload Tray */}
-            <div className="group/tray rounded-[14px] border-[1.5px] border-dashed border-[#194F34]/22 hover:border-[#194F34]/38 bg-gradient-to-b from-[#F4F9F5] via-[#EEF6F0] to-[#E6F1EA] px-4 py-4.5 flex flex-col items-center text-center transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none">
-              {/* Animated Layered Document Fan Visual Emblem */}
-              <div
-                aria-hidden="true"
-                className="relative flex items-center justify-center h-14 w-28 mb-2"
-              >
-                {/* Soft Breathing Radial Halo */}
-                <div className="absolute w-14 h-14 rounded-full bg-[#194F34]/12 blur-md animate-folder-halo pointer-events-none" />
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+              {/* Left / Primary Column */}
+              <div className="md:col-span-7 flex flex-col gap-4">
+                {/* 2. Main Printing Action Card */}
+                <motion.section
+                  aria-label="Ready to print?"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: PP_EASE.standard }}
+                >
+                  <SurfaceCard
+                    padding="lg"
+                    className="shadow-[0_1px_3px_rgba(25,79,52,0.05)]"
+                  >
+                    <div className="flex flex-col items-start">
+                      <motion.div
+                        animate={{ y: [0, -2, 0] }}
+                        transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
+                        className="w-12 h-12 rounded-2xl bg-[#EAF3ED] border border-[#194F34]/12 text-[#194F34] flex items-center justify-center mb-3.5"
+                      >
+                        <FolderUploadIcon />
+                      </motion.div>
 
-                {/* Left Swaying Document Sheet */}
-                <div className="absolute animate-paper-left w-8.5 h-10.5 rounded-lg bg-white border border-[#194F34]/15 shadow-xs flex flex-col justify-center gap-1 px-1.5 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  <span className="w-full h-1 rounded-full bg-[#194F34]/20" />
-                  <span className="w-3/4 h-1 rounded-full bg-[#194F34]/15" />
-                  <span className="w-1/2 h-1 rounded-full bg-[#194F34]/10" />
-                </div>
+                      <h1 className="text-[20px] font-bold text-[#191C1A] tracking-[-0.02em] leading-snug">
+                        Ready to print?
+                      </h1>
+                      <p className="text-[13.5px] text-[#545D56] leading-relaxed mt-1 max-w-sm">
+                        Upload your documents and print at your nearest kiosk.
+                      </p>
 
-                {/* Right Counter-Swaying Document Sheet */}
-                <div className="absolute animate-paper-right w-8.5 h-10.5 rounded-lg bg-[#F3F0E6] border border-[#194F34]/15 shadow-xs flex flex-col justify-center gap-1 px-1.5 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  <span className="w-full h-1 rounded-full bg-[#194F34]/20" />
-                  <span className="w-2/3 h-1 rounded-full bg-[#194F34]/15" />
-                  <span className="w-3/4 h-1 rounded-full bg-[#194F34]/10" />
-                </div>
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        fullWidth
+                        onClick={handleTriggerUpload}
+                        leftIcon={<FolderSimple size={18} weight="bold" aria-hidden="true" />}
+                        className="mt-4"
+                      >
+                        Start Printing
+                      </Button>
+                    </div>
 
-                {/* Center Floating Folder-Upload Badge */}
-                <div className="relative z-10 w-12 h-12 rounded-2xl bg-[#194F34] text-white shadow-[0_6px_16px_-3px_rgba(25,79,52,0.45)] flex items-center justify-center animate-folder-float group-hover/tray:scale-105 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none">
-                  <FolderUp className="w-5.5 h-5.5 stroke-[2.2]" />
-                </div>
+                    {/* Subtle Connected Kiosk Action Row */}
+                    <Divider className="mt-4 mb-3" />
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          Haptics.buttonPress();
+                          setShowKioskModal(true);
+                        }}
+                        className="inline-flex items-center gap-2 min-w-0 py-1 text-left cursor-pointer group"
+                      >
+                        <Printer size={16} weight="regular" className="text-[#194F34] shrink-0" aria-hidden="true" />
+                        <span className="text-[12.5px] font-semibold text-[#191C1A] group-hover:text-[#194F34] truncate transition-colors tabular-nums">
+                          {session.connected
+                            ? `${activeStation.name} · ${activeStation.status}`
+                            : 'No kiosk paired · Tap Scan QR'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTriggerScan}
+                        className="inline-flex items-center gap-1.5 min-h-[36px] px-2.5 -mr-1.5 rounded-lg text-[12.5px] font-semibold text-[#194F34] hover:bg-[#EAF3ED] active:scale-95 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <QrCode size={15} weight="bold" aria-hidden="true" />
+                        <span>Scan QR</span>
+                      </button>
+                    </div>
+                  </SurfaceCard>
+                </motion.section>
+
+                {/* 4. Relevant Quick Actions */}
+                <motion.section
+                  aria-label="Quick Actions"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.26, delay: 0.05, ease: PP_EASE.standard }}
+                  className="flex flex-col gap-2.5"
+                >
+                  <SectionHeader title="Quick Actions" className="px-0.5" />
+
+                  <SurfaceCard
+                    padding="none"
+                    className="overflow-hidden shadow-[0_1px_2px_rgba(25,79,52,0.04)]"
+                  >
+                    <NavItem
+                      label="My Recent Prints"
+                      description={recentPrintSummary}
+                      icon={<Receipt size={18} weight="regular" aria-hidden="true" />}
+                      badgeText={orders.length > 0 ? `${orders.length}` : undefined}
+                      onClick={() => setShowRecentPrintsSheet(true)}
+                    />
+                    <Divider />
+                    <NavItem
+                      label="Saved Documents"
+                      description="Browse files ready on your library"
+                      icon={<FolderSimple size={18} weight="regular" aria-hidden="true" />}
+                      onClick={() => handleNavClick('files')}
+                    />
+                    <Divider />
+                    <NavItem
+                      label="PDF Tools"
+                      description="Merge, split, compress, and scan utilities"
+                      icon={<Wrench size={18} weight="regular" aria-hidden="true" />}
+                      onClick={() => handleNavClick('tools')}
+                    />
+                  </SurfaceCard>
+                </motion.section>
               </div>
 
-              <h2 className="text-[18px] font-extrabold text-[#191C1A] tracking-tight leading-tight">
-                Ready to print?
-              </h2>
-              <p className="text-[12.5px] text-[#545D56] mt-1 leading-snug">
-                Select files or photos from your phone.
-              </p>
-
-              {/* Primary CTA with Specular Light Sheen */}
-              <button
-                type="button"
-                onClick={handleTriggerUpload}
-                className="group/btn relative overflow-hidden mt-3.5 w-full h-12 rounded-xl bg-[#194F34] hover:bg-[#143F2A] text-white font-semibold text-[14px] flex items-center justify-center gap-2 shadow-[0_6px_16px_-4px_rgba(25,79,52,0.38)] active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
+              {/* Right / Secondary Column: 3-Step Printing Guide */}
+              <motion.div
+                className="md:col-span-5"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: 0.08, ease: PP_EASE.standard }}
               >
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-cta-sheen"
+                <HowToPrintSection
+                  onScanClick={handleTriggerScan}
+                  onUploadClick={handleTriggerUpload}
+                  onPrintInfoClick={() => setShowKioskModal(true)}
                 />
-                <Upload
-                  className="w-4 h-4 stroke-[2.4] group-hover/btn:-translate-y-0.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
-                  aria-hidden="true"
-                />
-                <span>Add Documents</span>
-              </button>
-
-              {/* Quiet Unboxed Format Metadata */}
-              <div className="mt-2.5 flex items-center justify-center gap-1.5 text-[11px] font-medium text-[#5A685F]">
-                <span>PDF</span>
-                <span aria-hidden="true" className="opacity-50">·</span>
-                <span>Word</span>
-                <span aria-hidden="true" className="opacity-50">·</span>
-                <span>Excel</span>
-                <span aria-hidden="true" className="opacity-50">·</span>
-                <span>Images up to 50 MB</span>
-              </div>
+              </motion.div>
             </div>
-
-            {/* Clean Hairline Quick-Source Row */}
-            <div className="mt-2 grid grid-cols-2 divide-x divide-[#194F34]/10">
-              <button
-                type="button"
-                onClick={() => {
-                  Haptics.buttonPress();
-                  cameraInputRef.current?.click();
-                }}
-                className="group/photo h-11 flex items-center justify-center gap-2 text-[12.5px] font-semibold text-[#202722] hover:text-[#194F34] hover:bg-[#F5FAF6] rounded-l-xl active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
-              >
-                <Camera
-                  className="w-4 h-4 text-[#194F34] stroke-[2.2] group-hover/photo:scale-110 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
-                  aria-hidden="true"
-                />
-                <span>Take Photo</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleTriggerBrowser}
-                className="group/files h-11 flex items-center justify-center gap-2 text-[12.5px] font-semibold text-[#202722] hover:text-[#194F34] hover:bg-[#F5FAF6] rounded-r-xl active:scale-[0.97] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none cursor-pointer"
-              >
-                <FolderOpen
-                  className="w-4 h-4 text-[#194F34] stroke-[2.2] group-hover/files:scale-110 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
-                  aria-hidden="true"
-                />
-                <span>Saved Files</span>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. How to Print (3-step guide) */}
-        <HowToPrintSection
-          onScanClick={handleTriggerScan}
-          onUploadClick={handleTriggerUpload}
-          onPrintInfoClick={() => {
-            Haptics.buttonPress();
-            setShowKioskModal(true);
-          }}
-        />
-
-        {/* 4. Compact Printer / Station Information Card */}
-        <section aria-label="Printer Status" className="mb-2">
-          <button
-            type="button"
-            onClick={() => {
-              Haptics.buttonPress();
-              setShowKioskModal(true);
-            }}
-            className="w-full p-3.5 rounded-2xl bg-white border border-[#1B4D2E]/10 shadow-2xs hover:border-[#1B4D2E]/25 active:scale-[0.99] transition-all flex items-center justify-between gap-3 text-left"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[#EDF5F0] border border-[#1B4D2E]/15 text-[#1B4D2E] flex items-center justify-center shrink-0">
-                <Printer className="w-5 h-5" aria-hidden="true" />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-                  <span className="text-[13px] font-bold text-[#191C1A] truncate">
-                    Kiosk #04 · Ready to print
-                  </span>
-                </div>
-                <span className="text-[11.5px] text-[#545D56] truncate mt-0.5">
-                  Main Innovation Hub · Ground Floor · A4 Duplex
-                </span>
-              </div>
-            </div>
-
-            <ChevronRight className="w-4 h-4 text-[#707B72] shrink-0" aria-hidden="true" />
-          </button>
-        </section>
-      </div>
+          </motion.main>
         </>
       )}
+      </div>
 
-      {/* 5. Apple-Inspired Premium Mobile Bottom Navigation Bar (Home, Files, Scan, Tools, Account) */}
-      <nav
-        aria-label="Main Navigation"
-        className="fixed bottom-0 left-0 right-0 z-30 pb-safe bg-white border-t border-[#E8EDE9] shadow-[0_-2px_12px_rgba(25,79,52,0.03)]"
-      >
-        <div className="max-w-md mx-auto h-[68px] px-1.5 sm:px-2 grid grid-cols-5 items-center">
-          {/* 1. Home Tab */}
-          <button
-            type="button"
-            onClick={handleScrollToTop}
-            aria-current={activeTab === 'home' ? 'page' : undefined}
-            className="group flex flex-col items-center justify-center gap-1 h-full py-1.5 rounded-xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none select-none"
-          >
-            <div
-              className={`w-14 h-8 rounded-full flex items-center justify-center transition-all duration-200 motion-reduce:transition-none ${
-                activeTab === 'home'
-                  ? 'bg-[#EAF3ED] text-[#194F34]'
-                  : 'text-[#64736A] group-hover:text-[#194F34] group-hover:bg-[#EAF3ED]/40'
-              }`}
-            >
-              <PhosphorHouse
-                size={24}
-                weight={activeTab === 'home' ? 'fill' : 'regular'}
-                className={`transition-transform duration-200 motion-reduce:transition-none ${
-                  activeTab === 'home' ? 'scale-[1.04]' : 'scale-100'
-                }`}
-                aria-hidden="true"
-              />
-            </div>
-            <span
-              className={`text-[12px] tracking-tight leading-none transition-colors duration-200 motion-reduce:transition-none ${
-                activeTab === 'home'
-                  ? 'font-semibold text-[#194F34]'
-                  : 'font-medium text-[#64736A] group-hover:text-[#194F34]'
-              }`}
-            >
-              Home
-            </span>
-          </button>
+      {/* Persistent Mobile Bottom Navigation Bar: HOME | FILES | SCAN | TOOLS | ACCOUNT */}
+      <BottomNav
+        items={bottomNavItems}
+        activeId={showScannerModal ? 'scan' : activeTab}
+        onSelect={(id) => handleNavClick(id as BottomNavTab)}
+      />
 
-          {/* 2. Files Tab */}
-          <button
-            type="button"
-            onClick={handleTriggerBrowser}
-            aria-current={activeTab === 'files' ? 'page' : undefined}
-            className="group flex flex-col items-center justify-center gap-1 h-full py-1.5 rounded-xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none select-none"
-          >
-            <div
-              className={`w-14 h-8 rounded-full flex items-center justify-center transition-all duration-200 motion-reduce:transition-none ${
-                activeTab === 'files'
-                  ? 'bg-[#EAF3ED] text-[#194F34]'
-                  : 'text-[#64736A] group-hover:text-[#194F34] group-hover:bg-[#EAF3ED]/40'
-              }`}
-            >
-              <PhosphorFolderSimple
-                size={24}
-                weight={activeTab === 'files' ? 'fill' : 'regular'}
-                className={`transition-transform duration-200 motion-reduce:transition-none ${
-                  activeTab === 'files' ? 'scale-[1.04]' : 'scale-100'
-                }`}
-                aria-hidden="true"
-              />
-            </div>
-            <span
-              className={`text-[12px] tracking-tight leading-none transition-colors duration-200 motion-reduce:transition-none ${
-                activeTab === 'files'
-                  ? 'font-semibold text-[#194F34]'
-                  : 'font-medium text-[#64736A] group-hover:text-[#194F34]'
-              }`}
-            >
-              Files
-            </span>
-          </button>
-
-          {/* 3. Scan Tab (Exact Middle Position, Phosphor QrCode) */}
-          <button
-            type="button"
-            onClick={handleTriggerScan}
-            aria-label="Scan QR Code"
-            aria-current={activeTab === 'scan' ? 'page' : undefined}
-            className="group flex flex-col items-center justify-center gap-1 h-full py-1.5 rounded-xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none select-none"
-          >
-            <div
-              className={`w-14 h-8 rounded-full flex items-center justify-center transition-all duration-200 motion-reduce:transition-none ${
-                activeTab === 'scan'
-                  ? 'bg-[#EAF3ED] text-[#194F34]'
-                  : 'text-[#64736A] group-hover:text-[#194F34] group-hover:bg-[#EAF3ED]/40'
-              }`}
-            >
-              <PhosphorQrCode
-                size={24}
-                weight={activeTab === 'scan' ? 'fill' : 'regular'}
-                className={`transition-transform duration-200 motion-reduce:transition-none ${
-                  activeTab === 'scan' ? 'scale-[1.04]' : 'scale-100'
-                }`}
-                aria-hidden="true"
-              />
-            </div>
-            <span
-              className={`text-[12px] tracking-tight leading-none transition-colors duration-200 motion-reduce:transition-none ${
-                activeTab === 'scan'
-                  ? 'font-semibold text-[#194F34]'
-                  : 'font-medium text-[#64736A] group-hover:text-[#194F34]'
-              }`}
-            >
-              Scan
-            </span>
-          </button>
-
-          {/* 4. Tools Tab */}
-          <button
-            type="button"
-            onClick={handleTriggerTools}
-            aria-current={activeTab === 'tools' ? 'page' : undefined}
-            className="group flex flex-col items-center justify-center gap-1 h-full py-1.5 rounded-xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none select-none"
-          >
-            <div
-              className={`w-14 h-8 rounded-full flex items-center justify-center transition-all duration-200 motion-reduce:transition-none ${
-                activeTab === 'tools'
-                  ? 'bg-[#EAF3ED] text-[#194F34]'
-                  : 'text-[#64736A] group-hover:text-[#194F34] group-hover:bg-[#EAF3ED]/40'
-              }`}
-            >
-              <PhosphorWrench
-                size={24}
-                weight={activeTab === 'tools' ? 'fill' : 'regular'}
-                className={`transition-transform duration-200 motion-reduce:transition-none ${
-                  activeTab === 'tools' ? 'scale-[1.04]' : 'scale-100'
-                }`}
-                aria-hidden="true"
-              />
-            </div>
-            <span
-              className={`text-[12px] tracking-tight leading-none transition-colors duration-200 motion-reduce:transition-none ${
-                activeTab === 'tools'
-                  ? 'font-semibold text-[#194F34]'
-                  : 'font-medium text-[#64736A] group-hover:text-[#194F34]'
-              }`}
-            >
-              Tools
-            </span>
-          </button>
-
-          {/* 5. Account Tab */}
-          <button
-            type="button"
-            onClick={handleTriggerAccount}
-            aria-label="Account and Session"
-            aria-current={activeTab === 'account' ? 'page' : undefined}
-            className="group flex flex-col items-center justify-center gap-1 h-full py-1.5 rounded-xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none select-none"
-          >
-            <div
-              className={`w-14 h-8 rounded-full flex items-center justify-center transition-all duration-200 motion-reduce:transition-none ${
-                activeTab === 'account'
-                  ? 'bg-[#EAF3ED] text-[#194F34]'
-                  : 'text-[#64736A] group-hover:text-[#194F34] group-hover:bg-[#EAF3ED]/40'
-              }`}
-            >
-              <PhosphorUserCircle
-                size={24}
-                weight={activeTab === 'account' ? 'fill' : 'regular'}
-                className={`transition-transform duration-200 motion-reduce:transition-none ${
-                  activeTab === 'account' ? 'scale-[1.04]' : 'scale-100'
-                }`}
-                aria-hidden="true"
-              />
-            </div>
-            <span
-              className={`text-[12px] tracking-tight leading-none transition-colors duration-200 motion-reduce:transition-none ${
-                activeTab === 'account'
-                  ? 'font-semibold text-[#194F34]'
-                  : 'font-medium text-[#64736A] group-hover:text-[#194F34]'
-              }`}
-            >
-              Account
-            </span>
-          </button>
-        </div>
-      </nav>
-
-      {/* Smart QR & Document Scanner UI Modal */}
+      {/* QR Kiosk Scanner Modal */}
       <ScannerModal
         isOpen={showScannerModal}
-        onClose={() => {
-          setShowScannerModal(false);
-          setActiveTab(previousTabRef.current || 'home');
-        }}
-        onUploadFromGallery={() => {
-          fileInputRef.current?.click();
-        }}
-        onCaptureDocument={() => {
-          cameraInputRef.current?.click();
-        }}
-        onKioskConnected={(_kioskName) => {
-          setShowScannerModal(false);
-          setActiveTab('home');
-          handleTriggerUpload();
+        onClose={() => setScannerModalOpen(false)}
+        onKioskConnected={() => {
+          setScannerModalOpen(false);
+          onTabChange('home');
         }}
       />
 
@@ -676,443 +597,127 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
         currentBalance={balance}
       />
 
-      {/* Help Modal Dialog */}
-      {showHelpModal &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Printing Help"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
-            onClick={() => setShowHelpModal(false)}
-          >
-            <div
-              className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card"
-              onClick={(e) => e.stopPropagation()}
+      {/* My Recent Prints Bottom Sheet (uses real useKioskOrders data) */}
+      <BottomSheet
+        isOpen={showRecentPrintsSheet}
+        onClose={() => setShowRecentPrintsSheet(false)}
+        title="My Recent Prints"
+        subtitle={
+          orders.length > 0
+            ? `${orders.length} recorded print ${orders.length === 1 ? 'job' : 'jobs'}`
+            : undefined
+        }
+        footer={
+          <div className="grid grid-cols-2 gap-2.5">
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => {
+                setShowRecentPrintsSheet(false);
+                handleNavClick('account');
+              }}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <HelpCircle className="w-4 h-4 stroke-[2.2]" />
-                  </div>
-                  <h2 className="text-[16px] font-bold text-[#191C1A]">
-                    How to print at Creator4 Lab
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowHelpModal(false)}
-                  aria-label="Close help"
-                  className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <ol className="flex flex-col gap-3 text-[12.5px] text-[#545D56] mb-5">
-                <li className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <span>
-                    <strong className="text-[#191C1A]">1. Add Documents:</strong> Tap Start Printing or Upload to select PDF, Word, Excel, or images from your phone.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <span>
-                    <strong className="text-[#191C1A]">2. Review &amp; Options:</strong> Preview pages, remove detected blank pages with one tap, and customize copies or color mode.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <span>
-                    <strong className="text-[#191C1A]">3. Instant Print:</strong> Pay securely and release your print job directly at Kiosk #04.
-                  </span>
-                </li>
-              </ol>
-
-              <button
-                type="button"
-                onClick={() => setShowHelpModal(false)}
-                className="w-full h-11 rounded-2xl bg-[#1B4D2E] text-white font-semibold text-[13.5px] shadow-xs active:scale-[0.98] transition-all"
-              >
-                Got it
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {/* Orders & Print History Modal Dialog */}
-      {showOrdersModal &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Print Orders and History"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
-            onClick={() => {
-              setShowOrdersModal(false);
-              setActiveTab('home');
-            }}
-          >
-            <div
-              className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card max-h-[88vh] flex flex-col"
-              onClick={(e) => e.stopPropagation()}
+              Open Account
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setShowRecentPrintsSheet(false);
+                handleTriggerUpload();
+              }}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <ReceiptText className="w-4 h-4 stroke-[2.2]" />
-                  </div>
-                  <div>
-                    <h2 className="text-[15px] font-bold text-[#191C1A]">
-                      Print Orders &amp; Receipts
-                    </h2>
-                    <span className="text-[11px] text-[#545D56]">
-                      Creator4 Lab Kiosk #04
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowOrdersModal(false);
-                    setActiveTab('home');
-                  }}
-                  aria-label="Close orders"
-                  className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+              Start Printing
+            </Button>
+          </div>
+        }
+      >
+        {orders.length === 0 ? (
+          <EmptyState
+            icon={<Receipt size={22} weight="duotone" aria-hidden="true" />}
+            title="No recent prints"
+            description="Your completed and active kiosk print jobs will appear here."
+          />
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {orders.slice(0, 6).map((order) => {
+              const primaryDocName =
+                order.items[0]?.name || `${order.documentCount} document(s)`;
+              const docTitle =
+                order.documentCount > 1
+                  ? `${primaryDocName} +${order.documentCount - 1} more`
+                  : primaryDocName;
 
-              {/* Connected Kiosk Banner */}
-              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#F0F6F2] border border-[#1B4D2E]/15 mb-3 text-[11.5px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-                  <span className="font-semibold text-[#1B4D2E]">Kiosk #04 Connected</span>
-                </div>
-                <span className="text-[#545D56]">Session Active</span>
-              </div>
-
-              {/* Orders List */}
-              <div className="flex flex-col gap-2.5 overflow-y-auto mb-4 pr-0.5">
-                {/* Order 1 */}
-                <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/[0.06] flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#1B4D2E]">
-                      Order #C4-8921
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Printed
-                    </span>
-                  </div>
-                  <div className="text-[13px] font-semibold text-[#191C1A] truncate">
-                    Lab_Manual_Final.pdf
-                  </div>
-                  <div className="flex items-center justify-between text-[11.5px] text-[#545D56] pt-1 border-t border-black/[0.04]">
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-[#707B72]" />
-                      <span>Today, 10:24 AM</span>
+              return (
+                <SurfaceCard key={order.id} padding="sm" className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[13.5px] font-bold text-[#191C1A] truncate">
+                          {docTitle}
+                        </span>
+                      </div>
+                      <DocumentMetaText
+                        parts={[
+                          order.orderNumber,
+                          order.kioskName,
+                          `${order.totalSheets} ${order.totalSheets === 1 ? 'sheet' : 'sheets'}`,
+                          formatOrderDate(order.createdAt),
+                        ]}
+                        className="mt-0.5"
+                      />
                     </div>
-                    <span className="font-bold text-[#191C1A]">₹24.00 (12 pgs)</span>
-                  </div>
-                </div>
 
-                {/* Order 2 */}
-                <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/[0.06] flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#1B4D2E]">
-                      Order #C4-8845
+                    <FinancialValue className="text-[14.5px] shrink-0">
+                      {formatInrCurrency(order.amountInr)}
+                    </FinancialValue>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#E4EAE5]">
+                    <span className="text-[11.5px] text-[#545D56] truncate tabular-nums">
+                      {order.releaseCode &&
+                      (order.status === 'Queued' ||
+                        order.status === 'Claimed' ||
+                        order.status === 'Printing')
+                        ? `PIN ${order.releaseCode} · `
+                        : ''}
+                      {order.colourLabel} · {order.sidesLabel} · {order.paymentMethod}
                     </span>
-                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Printed
-                    </span>
+                    <StatusIndicator
+                      tone={renderOrderStatusTone(order.status)}
+                      label={order.status}
+                    />
                   </div>
-                  <div className="text-[13px] font-semibold text-[#191C1A] truncate">
-                    Project_Report_Cover.pdf
-                  </div>
-                  <div className="flex items-center justify-between text-[11.5px] text-[#545D56] pt-1 border-t border-black/[0.04]">
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-[#707B72]" />
-                      <span>Yesterday, 3:15 PM</span>
-                    </div>
-                    <span className="font-bold text-[#191C1A]">₹40.00 (Colour)</span>
-                  </div>
-                </div>
-
-                {/* Eco Savings Badge */}
-                <div className="p-2.5 rounded-xl bg-[#EDF5F0] border border-[#1B4D2E]/15 flex items-center gap-2 text-[11px] text-[#1B4D2E]">
-                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    <strong>Eco savings:</strong> 0 blank pages billed · Saved 4 sheets via auto duplex.
-                  </span>
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center gap-2 pt-1 border-t border-black/[0.06]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowOrdersModal(false);
-                    setActiveTab('home');
-                  }}
-                  className="flex-1 h-11 rounded-2xl bg-[#F2F7F4] text-[#1B4D2E] font-semibold text-[13px] active:scale-[0.98] transition-all"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowOrdersModal(false);
-                    setActiveTab('home');
-                    handleTriggerUpload();
-                  }}
-                  className="flex-1 h-11 rounded-2xl bg-[#1B4D2E] text-white font-semibold text-[13px] shadow-xs active:scale-[0.98] transition-all"
-                >
-                  New Print
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
+                </SurfaceCard>
+              );
+            })}
+          </div>
         )}
+      </BottomSheet>
 
-      {/* Tools Modal Sheet (Section 7 Destination: Tools) */}
-      {showToolsModal &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Print Tools"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
-            onClick={() => {
-              setShowToolsModal(false);
-              setActiveTab('home');
-            }}
-          >
-            <div
-              className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#EDF5F0] text-[#1B4D2E] flex items-center justify-center">
-                    <Wrench className="w-4 h-4 stroke-[2.2]" />
-                  </div>
-                  <div>
-                    <h2 className="text-[15px] font-bold text-[#191C1A]">
-                      Print Tools &amp; Diagnostics
-                    </h2>
-                    <span className="text-[11px] text-[#545D56]">
-                      Creator4 Lab Smart Utilities
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowToolsModal(false);
-                    setActiveTab('home');
-                  }}
-                  aria-label="Close tools"
-                  className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-2.5 text-[12.5px] text-[#545D56] mb-5">
-                <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/[0.04] flex items-start gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-[#191C1A] block">
-                      Multi-Layer Blank Page Detection
-                    </span>
-                    <span className="text-[11.5px] text-[#545D56] mt-0.5 block leading-snug">
-                      Combines PDF.js text layer inspection, canvas pixel density analysis, and visual graphics verification to prevent false detection of written text.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/[0.04] flex items-start gap-2.5">
-                  <Sparkles className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-[#191C1A] block">
-                      Paper Saver Optimizer
-                    </span>
-                    <span className="text-[11.5px] text-[#545D56] mt-0.5 block leading-snug">
-                      Automatic exclusion of blank pages and 2-sided duplex printing reduces paper waste by up to 50%.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-black/[0.04] flex items-start gap-2.5">
-                  <Printer className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-[#191C1A] block">
-                      Hardware Specs: Kiosk #04
-                    </span>
-                    <span className="text-[11.5px] text-[#545D56] mt-0.5 block leading-snug">
-                      High-resolution 1200 DPI laser engine, auto-duplexing unit, supporting A4 standard stock up to 100gsm.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowToolsModal(false);
-                  setActiveTab('home');
-                }}
-                className="w-full h-11 rounded-2xl bg-[#1B4D2E] text-white font-semibold text-[13.5px] shadow-xs active:scale-[0.98] transition-all"
-              >
-                Close Tools
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {/* Menu Modal Drawer (Section 7 Destination: Menu) */}
-      {showMenuModal &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Navigation Menu"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
-            onClick={() => setShowMenuModal(false)}
-          >
-            <div
-              className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
-                <div className="flex items-center gap-2.5">
-                  <Creator4Logo size="sm" interactive={false} />
-                  <div>
-                    <h2 className="text-[15px] font-bold text-[#191C1A]">
-                      Creator4 Lab Menu
-                    </h2>
-                    <span className="text-[11px] text-[#545D56]">
-                      Preferences &amp; Navigation
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowMenuModal(false)}
-                  aria-label="Close menu"
-                  className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Menu Actions */}
-              <div className="flex flex-col gap-1.5 mb-5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMenuModal(false);
-                    setShowHelpModal(true);
-                  }}
-                  className="w-full p-2.5 rounded-xl hover:bg-[#F8FAF8] text-left text-[13px] font-semibold text-[#191C1A] flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <HelpCircle className="w-4 h-4 text-[#1B4D2E]" />
-                    <span>How to Print Guide</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#707B72]" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMenuModal(false);
-                    setShowKioskModal(true);
-                  }}
-                  className="w-full p-2.5 rounded-xl hover:bg-[#F8FAF8] text-left text-[13px] font-semibold text-[#191C1A] flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <MapPin className="w-4 h-4 text-[#1B4D2E]" />
-                    <span>Station #04 Details</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#707B72]" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMenuModal(false);
-                    setShowOrdersModal(true);
-                  }}
-                  className="w-full p-2.5 rounded-xl hover:bg-[#F8FAF8] text-left text-[13px] font-semibold text-[#191C1A] flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <ReceiptText className="w-4 h-4 text-[#1B4D2E]" />
-                    <span>Print Orders &amp; Receipts</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#707B72]" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMenuModal(false);
-                    handleTriggerBrowser();
-                  }}
-                  className="w-full p-2.5 rounded-xl hover:bg-[#F8FAF8] text-left text-[13px] font-semibold text-[#191C1A] flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <FolderOpen className="w-4 h-4 text-[#1B4D2E]" />
-                    <span>Document Browser</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#707B72]" />
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowMenuModal(false)}
-                className="w-full h-11 rounded-2xl bg-[#1B4D2E] text-white font-semibold text-[13.5px] shadow-xs active:scale-[0.98] transition-all"
-              >
-                Done
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {/* Kiosk Information Modal Dialog */}
+      {/* Kiosk Station & Switcher Modal */}
       {showKioskModal &&
         createPortal(
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Kiosk Details"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-apple-reveal"
+            aria-label="Kiosk Station Details"
+            className="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4 animate-backdrop-fade"
             onClick={() => setShowKioskModal(false)}
           >
             <div
-              className="w-full max-w-sm rounded-3xl bg-white border border-[#1B4D2E]/15 shadow-xl p-5 animate-apple-card"
+              className="w-full max-w-sm rounded-2xl bg-white border border-[#D5DDD7] shadow-xl p-5 animate-view-enter"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-black/[0.06] mb-3">
+              <div className="flex items-center justify-between pb-3 border-b border-[#E4EAE5] mb-3">
                 <div className="flex items-center gap-2.5">
-                  <Creator4Logo size="sm" interactive={false} />
+                  <PrintPointLogo size="sm" interactive={false} />
                   <div>
                     <h2 className="text-[15px] font-bold text-[#191C1A]">
-                      Creator4 Lab Kiosk #04
+                      {activeStation.name}
                     </h2>
-                    <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
-                      Online &amp; Ready
+                    <span className="text-[11.5px] text-[#194F34] font-semibold tabular-nums">
+                      {activeStation.status} · {activeStation.paperTrayPercent}% paper tray
                     </span>
                   </div>
                 </div>
@@ -1120,49 +725,82 @@ export const UploadHomeStep: React.FC<UploadHomeStepProps> = ({
                   type="button"
                   onClick={() => setShowKioskModal(false)}
                   aria-label="Close kiosk details"
-                  className="w-8 h-8 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center"
+                  className="w-9 h-9 rounded-xl text-[#545D56] hover:bg-black/5 flex items-center justify-center cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  <X size={18} weight="bold" />
                 </button>
               </div>
 
-              <div className="flex flex-col gap-2.5 text-[12.5px] text-[#545D56] mb-5">
-                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#F8FAF8] border border-black/[0.04]">
-                  <MapPin className="w-4 h-4 text-[#1B4D2E] shrink-0" />
-                  <span>Main Innovation Hub · Ground Floor</span>
+              <div className="flex flex-col gap-2 text-[12px] text-[#545D56] mb-4">
+                <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F8FAF6] border border-[#E4EAE5]">
+                  <MapPin size={16} weight="bold" className="text-[#194F34] shrink-0" />
+                  <span>{activeStation.location}</span>
                 </div>
-                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#F8FAF8] border border-black/[0.04]">
-                  <Printer className="w-4 h-4 text-[#1B4D2E] shrink-0" />
-                  <span>A4 Laser Duplex · B&amp;W (₹2.00) &amp; Colour (₹10.00)</span>
+                <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F8FAF6] border border-[#E4EAE5] tabular-nums">
+                  <Printer size={16} weight="bold" className="text-[#194F34] shrink-0" />
+                  <span>
+                    A4 Duplex · B&amp;W {formatInrCurrency(activeStation.bwRateInr)}/pg · Colour{' '}
+                    {formatInrCurrency(activeStation.colourRateInr)}/pg
+                  </span>
                 </div>
-                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#F8FAF8] border border-black/[0.04]">
-                  <Zap className="w-4 h-4 text-[#1B4D2E] shrink-0" />
-                  <span>High-speed instant queue processing</span>
+                <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F8FAF6] border border-[#E4EAE5]">
+                  <Lightning size={16} weight="bold" className="text-[#194F34] shrink-0" />
+                  <span>Instant encrypted queue release</span>
                 </div>
-                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#F8FAF8] border border-black/[0.04]">
-                  <ShieldCheck className="w-4 h-4 text-[#1B4D2E] shrink-0" />
-                  <span>Files automatically deleted after printing</span>
+                <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F8FAF6] border border-[#E4EAE5]">
+                  <ShieldCheck size={16} weight="bold" className="text-[#194F34] shrink-0" />
+                  <span>Files auto-purged once printing completes</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowKioskModal(false)}
-                  className="flex-1 h-11 rounded-2xl bg-[#F2F7F4] text-[#1B4D2E] font-semibold text-[13px] active:scale-[0.98] transition-all"
+              {/* Station Status Overview (QR required to pair) */}
+              <div className="mb-4">
+                <span className="text-[11px] font-bold text-[#545D56] uppercase tracking-wider block mb-1.5">
+                  Nearby Stations (Scan QR on Kiosk to Pair)
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {stations.map((st) => {
+                    const selected = session.connected && st.id === activeStation.id;
+                    return (
+                      <div
+                        key={st.id}
+                        className={`min-h-[38px] px-2 py-1.5 rounded-xl border text-center text-[11.5px] font-bold flex flex-col items-center justify-center ${
+                          selected
+                            ? 'bg-[#194F34] border-[#194F34] text-white'
+                            : 'bg-[#F8FAF6] border-[#D5DDD7] text-[#545D56]'
+                        }`}
+                      >
+                        <span>{st.name}</span>
+                        <span className={`text-[9.5px] font-medium ${selected ? 'text-white/85' : 'text-[#626E65]'}`}>
+                          {selected ? 'Paired' : `${st.paperTrayPercent}% tray`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => {
+                    setShowKioskModal(false);
+                    setScannerModalOpen(true);
+                  }}
                 >
-                  Close
-                </button>
-                <button
-                  type="button"
+                  Scan QR
+                </Button>
+                <Button
+                  variant="primary"
+                  size="md"
                   onClick={() => {
                     setShowKioskModal(false);
                     handleTriggerUpload();
                   }}
-                  className="flex-1 h-11 rounded-2xl bg-[#1B4D2E] text-white font-semibold text-[13px] shadow-xs active:scale-[0.98] transition-all"
                 >
                   Start Printing
-                </button>
+                </Button>
               </div>
             </div>
           </div>,

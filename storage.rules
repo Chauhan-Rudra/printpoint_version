@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /kiosks/{uid}/{sessionToken}/{docId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null &&
+        request.auth.uid == uid &&
+        request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 104857600 &&
+        (
+          request.resource.contentType.matches('application/pdf') ||
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('text/.*') ||
+          request.resource.contentType.matches('application/msword') ||
+          request.resource.contentType.matches('application/vnd\\..*')
+        );
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import {
-  ChevronDown,
-  HelpCircle,
-  CheckCircle2,
+  CaretDown,
+  Question,
+  CheckCircle,
   MapPin,
   Printer,
   ShieldCheck,
   X,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 
 import { Creator4Logo } from './Creator4Logo';
+import { useKioskSession } from '../utils/kioskSession';
 
 interface KioskHeaderProps {
   onGoHome?: () => void;
@@ -18,12 +19,14 @@ interface KioskHeaderProps {
 export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
   const [showKioskInfo, setShowKioskInfo] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const { session } = useKioskSession();
+  const station = session.activeStation;
 
   return (
     <>
-      <header className="sticky top-0 w-full z-40 pt-safe bg-white border-b border-outline-variant/35 shadow-2xs">
-        <div className="h-14 px-4 flex items-center justify-between mx-auto w-full max-w-md relative">
-          {/* Left: Creator4 Lab Logo + Kiosk Identification with Dropdown Indicator */}
+      <header className="sticky top-0 w-full z-40 pt-safe bg-white border-b border-outline-variant/45">
+        <div className="h-14 px-4 flex items-center justify-between mx-auto w-full max-w-4xl relative">
+          {/* Left: Creator4 Lab Logo + Live Paired Kiosk Identification */}
           <div className="flex items-center gap-2.5 min-w-0">
             <Creator4Logo
               size="sm"
@@ -47,28 +50,29 @@ export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
               }}
               aria-expanded={showKioskInfo}
               aria-label="Kiosk information"
-              className="flex flex-col text-left min-w-0 group active:scale-[0.99] transition-transform duration-150"
+              className="flex flex-col text-left min-w-0 min-h-[44px] justify-center group active:scale-[0.99] transition-transform duration-150"
             >
               <div className="flex items-center gap-1">
                 <span className="text-[14px] font-bold text-on-surface tracking-tight truncate">
                   Print Point
                 </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 text-on-surface-variant shrink-0 transition-transform duration-200 ${
-                    showKioskInfo ? 'rotate-180 text-[#1B4D2E]' : ''
+                <CaretDown
+                  size={13}
+                  weight="bold"
+                  className={`text-on-surface-variant shrink-0 transition-transform duration-200 ${
+                    showKioskInfo ? 'rotate-180 text-[#194F34]' : ''
                   }`}
                   aria-hidden="true"
                 />
               </div>
-              <span className="text-[11px] text-on-surface-variant leading-tight truncate">
-                Kiosk #04 · Ready to print
+              <span className="text-[11px] text-on-surface-variant leading-tight truncate tabular-nums">
+                {station.name} · {session.connected ? station.status : 'Offline'}
               </span>
             </button>
           </div>
 
           {/* Right: Help Option */}
           <div className="flex items-center gap-1.5 shrink-0">
-
             <button
               type="button"
               onClick={() => {
@@ -77,9 +81,9 @@ export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
               }}
               aria-expanded={showHelpModal}
               aria-label="Help"
-              className="h-9 px-2.5 rounded-xl text-on-surface hover:bg-surface-container-low active:scale-95 transition-all duration-150 flex items-center gap-1.5 shrink-0"
+              className="min-h-[44px] px-3 rounded-xl text-on-surface hover:bg-surface-container-low active:scale-95 transition-all duration-150 flex items-center gap-1.5 shrink-0"
             >
-              <HelpCircle className="w-4 h-4 text-on-surface-variant" aria-hidden="true" />
+              <Question size={17} weight="regular" className="text-on-surface-variant" aria-hidden="true" />
               <span className="text-[13px] font-semibold text-on-surface">Help</span>
             </button>
           </div>
@@ -89,36 +93,42 @@ export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
             <div
               role="region"
               aria-label="Kiosk Details"
-              className="absolute left-4 right-4 top-[60px] rounded-2xl bg-white border border-outline-variant/60 shadow-lg p-3.5 z-50 animate-fade-in-up"
+              className="absolute left-4 right-4 max-w-md top-[60px] rounded-2xl bg-white border border-outline-variant/60 shadow-lg p-3.5 z-50 animate-view-enter"
             >
-              <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-outline-variant/30">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                  <span className="text-[12px] font-bold text-on-surface">
-                    Creator4 Lab Self-Service Kiosk #04
+              <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-outline-variant/35">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      session.connected ? 'bg-[#194F34]' : 'bg-outline'
+                    }`}
+                  />
+                  <span className="text-[12.5px] font-bold text-on-surface truncate">
+                    Print Point {station.name}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowKioskInfo(false)}
                   aria-label="Close kiosk details"
-                  className="w-6 h-6 rounded-lg text-on-surface-variant flex items-center justify-center hover:bg-surface-container-low"
+                  className="w-8 h-8 rounded-lg text-on-surface-variant flex items-center justify-center hover:bg-surface-container-low"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X size={15} weight="bold" />
                 </button>
               </div>
-              <div className="flex flex-col gap-1.5 text-[12px] text-on-surface-variant">
+              <div className="flex flex-col gap-2 text-[12px] text-on-surface-variant">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-3.5 h-3.5 text-[#1B4D2E] shrink-0" />
-                  <span>Main Innovation Hub · Ground Floor</span>
+                  <MapPin size={15} weight="duotone" className="text-[#194F34] shrink-0" />
+                  <span>{station.location}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Printer className="w-3.5 h-3.5 text-[#1B4D2E] shrink-0" />
-                  <span>A4 Laser Duplex · B&amp;W and Full Colour Ready</span>
+                  <Printer size={15} weight="duotone" className="text-[#194F34] shrink-0" />
+                  <span className="tabular-nums">
+                    B&amp;W ₹{station.bwRateInr}/pg · Colour ₹{station.colourRateInr}/pg · Paper {station.paperTrayPercent}%
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#1B4D2E] shrink-0" />
-                  <span>Auto-delete enabled after print completion</span>
+                  <ShieldCheck size={15} weight="duotone" className="text-[#194F34] shrink-0" />
+                  <span>Files auto-delete after print completion</span>
                 </div>
               </div>
             </div>
@@ -126,49 +136,50 @@ export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
         </div>
       </header>
 
-      {/* Compact Help Popover / Sheet */}
+      {/* Compact Help Modal */}
       {showHelpModal && (
         <div
           role="dialog"
+          aria-modal="true"
           aria-label="Printing Help"
-          className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[1px] flex items-start justify-center pt-16 px-4"
+          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[1px] flex items-start justify-center pt-16 px-4 animate-backdrop-fade"
           onClick={() => setShowHelpModal(false)}
         >
           <div
-            className="w-full max-w-md rounded-2xl bg-white border border-outline-variant/60 shadow-xl p-4 animate-fade-in-up"
+            className="w-full max-w-md rounded-2xl bg-white border border-outline-variant/60 shadow-xl p-4 animate-view-enter"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-outline-variant/30">
+            <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-outline-variant/35">
               <h2 className="text-[15px] font-bold text-on-surface">
-                How to print at this kiosk
+                How to print at {station.name}
               </h2>
               <button
                 type="button"
                 onClick={() => setShowHelpModal(false)}
                 aria-label="Close help"
-                className="w-7 h-7 rounded-lg text-on-surface-variant flex items-center justify-center hover:bg-surface-container-low"
+                className="w-8 h-8 rounded-lg text-on-surface-variant flex items-center justify-center hover:bg-surface-container-low"
               >
-                <X className="w-4 h-4" />
+                <X size={16} weight="bold" />
               </button>
             </div>
 
-            <ol className="flex flex-col gap-2.5 text-[12.5px] text-on-surface-variant mb-3">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
+            <ol className="flex flex-col gap-2.5 text-[12.5px] text-on-surface-variant mb-4">
+              <li className="flex items-start gap-2.5">
+                <CheckCircle size={17} weight="fill" className="text-[#194F34] shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-on-surface">1. Add Files:</strong> Tap the large Add Files card to select one or more PDF, DOCX, JPG, or PNG files from your phone.
+                  <strong className="text-on-surface">1. Add Documents:</strong> Select PDF, Word, Excel, PowerPoint, or images from your phone.
                 </span>
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
+              <li className="flex items-start gap-2.5">
+                <CheckCircle size={17} weight="fill" className="text-[#194F34] shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-on-surface">2. Set Options:</strong> Choose number of copies, Black &amp; White or Colour, and 1-Sided or 2-Sided printing.
+                  <strong className="text-on-surface">2. Preview &amp; Configure:</strong> Review pages, remove blanks, choose B&amp;W or Colour, and 1 or 2-sided output.
                 </span>
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#1B4D2E] shrink-0 mt-0.5" />
+              <li className="flex items-start gap-2.5">
+                <CheckCircle size={17} weight="fill" className="text-[#194F34] shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-on-surface">3. Continue &amp; Print:</strong> Tap Continue to review your page count and release your print job at Kiosk #04.
+                  <strong className="text-on-surface">3. Pay &amp; Collect:</strong> Pay from your wallet or UPI and collect your print from {station.name}.
                 </span>
               </li>
             </ol>
@@ -176,7 +187,7 @@ export const KioskHeader: React.FC<KioskHeaderProps> = ({ onGoHome }) => {
             <button
               type="button"
               onClick={() => setShowHelpModal(false)}
-              className="w-full h-10 rounded-xl bg-[#1B4D2E] text-white font-semibold text-[13px]"
+              className="w-full min-h-[44px] rounded-xl bg-[#194F34] text-white font-semibold text-[13px] active:scale-[0.98] transition-transform"
             >
               Got it
             </button>

@@ -555,3 +555,69 @@ export async function generateIdCardPdf(
   const pdfBytes = await pdfDoc.save();
   return createPdfFile(pdfBytes, 'id_card_layout_a4.pdf');
 }
+
+export const MAX_TOOL_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+
+export function validateToolFiles(
+  files: File[],
+  mode: 'pdf' | 'image' | 'image-or-pdf'
+): { validFiles: File[]; errors: string[] } {
+  const validFiles: File[] = [];
+  const errors: string[] = [];
+
+  for (const file of files) {
+    if (!file || file.size <= 0) {
+      errors.push(`"${file?.name || 'Selected file'}" is empty (0 bytes).`);
+      continue;
+    }
+
+    if (file.size > MAX_TOOL_FILE_SIZE_BYTES) {
+      errors.push(`"${file.name}" exceeds the 100 MB maximum file size limit.`);
+      continue;
+    }
+
+    const lower = file.name.toLowerCase();
+    const isPdf = file.type === 'application/pdf' || lower.endsWith('.pdf');
+    const isImage =
+      file.type.startsWith('image/') ||
+      /\.(jpe?g|png|webp|gif|bmp)$/i.test(lower);
+
+    if (mode === 'pdf' && !isPdf) {
+      errors.push(`"${file.name}" is not a PDF file. Please choose a .pdf document.`);
+      continue;
+    }
+    if (mode === 'image' && !isImage) {
+      errors.push(`"${file.name}" is not a supported image (JPG, PNG, WebP).`);
+      continue;
+    }
+    if (mode === 'image-or-pdf' && !isPdf && !isImage) {
+      errors.push(`"${file.name}" must be a PDF or image file.`);
+      continue;
+    }
+
+    validFiles.push(file);
+  }
+
+  return { validFiles, errors };
+}
+
+export function formatCompressionSummary(originalBytes: number, newBytes: number): {
+  savedPercent: number;
+  summaryText: string;
+} {
+  if (originalBytes <= 0) {
+    return { savedPercent: 0, summaryText: 'Compressed' };
+  }
+  const diff = Math.max(0, originalBytes - newBytes);
+  const savedPercent = Math.round((diff / originalBytes) * 100);
+  const origMb = (originalBytes / (1024 * 1024)).toFixed(2);
+  const newMb = (newBytes / (1024 * 1024)).toFixed(2);
+  return {
+    savedPercent,
+    summaryText:
+      savedPercent > 0
+        ? `${origMb} MB → ${newMb} MB (${savedPercent}% smaller)`
+        : `${newMb} MB (already optimal)`,
+  };
+}
+

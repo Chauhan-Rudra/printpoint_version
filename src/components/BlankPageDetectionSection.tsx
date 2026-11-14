@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  FileSearch,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCcw,
-  ChevronRight,
-  Trash2,
-} from 'lucide-react';
+  MagnifyingGlass,
+  CheckCircle,
+  Warning,
+  ArrowCounterClockwise,
+  CaretRight,
+  Trash,
+} from '@phosphor-icons/react';
 import { BlankPageItem } from '../types/kiosk';
 import { triggerHaptic } from '../utils/haptics';
 
@@ -36,7 +36,6 @@ export const BlankPageDetectionSection: React.FC<
   const blankCount = detectedItems.length;
   const removedCount = removedItems.length;
 
-  // Group detected items by document for clear, compact display
   const affectedDocsMap = detectedItems.reduce<Record<string, number[]>>(
     (acc, item) => {
       if (!acc[item.documentName]) {
@@ -58,76 +57,67 @@ export const BlankPageDetectionSection: React.FC<
   return (
     <div
       data-testid="blank-page-detection-section"
-      className="animate-apple-card transition-all"
+      className="animate-view-enter transition-all"
     >
-      {/* 1. Active Scanning State */}
       {isAnalyzing && (
-        <div className="w-full p-2.5 rounded-[16px] bg-[#F2F7F4] border border-[#1B4D2E]/15 flex items-center gap-2.5 shadow-2xs">
-          <div className="w-5 h-5 rounded-md bg-[#1B4D2E]/10 text-[#1B4D2E] flex items-center justify-center shrink-0">
-            <FileSearch className="w-3 h-3 animate-pulse text-[#1B4D2E]" />
+        <div className="w-full p-3 rounded-2xl bg-[#F2F7F4] border border-[#194F34]/15 flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-lg bg-[#194F34]/10 text-[#194F34] flex items-center justify-center shrink-0">
+            <MagnifyingGlass size={14} weight="bold" />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between text-[11.5px] font-semibold text-[#141A16]">
-              <span>Checking for blank pages...</span>
-              {analysisProgress && analysisProgress.total > 0 && (
-                <span className="text-[10px] font-bold text-[#1B4D2E] tabular-nums">
-                  {analysisProgress.current}/{analysisProgress.total}
-                </span>
-              )}
-            </div>
+          <div className="min-w-0 flex-1 flex items-center justify-between text-[12px] font-semibold text-on-surface">
+            <span>Scanning for blank pages...</span>
+            {analysisProgress && analysisProgress.total > 0 && (
+              <span className="text-[11px] font-bold text-[#194F34] tabular-nums">
+                {analysisProgress.current}/{analysisProgress.total}
+              </span>
+            )}
           </div>
         </div>
       )}
 
-      {/* 2. Blank Pages Detected State (Compact Notification-Style Section) */}
       {!isAnalyzing && blankCount > 0 && (
-        <div className="w-full p-3.5 rounded-[18px] bg-[#F2F7F4] border border-[#1B4D2E]/20 shadow-2xs">
-          {/* Top Row: Icon, Heading, Badge */}
+        <div className="w-full p-3.5 rounded-2xl bg-[#F2F7F4] border border-[#194F34]/20">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 rounded-md bg-[#1B4D2E]/10 text-[#1B4D2E] flex items-center justify-center shrink-0">
-                <FileSearch className="w-3.5 h-3.5 stroke-[2.2]" />
+              <div className="w-7 h-7 rounded-lg bg-[#194F34]/10 text-[#194F34] flex items-center justify-center shrink-0">
+                <MagnifyingGlass size={15} weight="bold" />
               </div>
-              <h3 className="text-[13px] font-bold text-[#141A16] leading-tight truncate">
-                Blank Pages Detected
+              <h3 className="text-[13px] font-bold text-on-surface leading-tight truncate">
+                Blank Pages Found
               </h3>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {hasUncertainPages && (
-                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 flex items-center gap-1">
-                  <AlertTriangle className="w-2.5 h-2.5" />
-                  Review
+                <span className="text-[10.5px] font-semibold text-amber-800 flex items-center gap-1">
+                  <Warning size={13} weight="fill" />
+                  Needs review
                 </span>
               )}
               <span
                 data-testid="blank-pages-count-badge"
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1B4D2E] text-white tabular-nums shadow-2xs"
+                className="text-[11px] font-bold text-[#194F34] tabular-nums"
               >
                 {blankCount} {blankCount === 1 ? 'page' : 'pages'}
               </span>
             </div>
           </div>
 
-          {/* Description */}
-          <p className="text-[11.5px] text-[#475249] leading-snug mt-1.5">
-            {blankCount === 1
-              ? '1 blank page found across your documents.'
-              : `${blankCount} blank pages found across your documents.`}
+          <p className="text-[11.5px] text-on-surface-variant leading-snug mt-1.5">
+            Exclude empty pages to avoid unnecessary print charges.
           </p>
 
-          {/* Affected Document: Compact inline element */}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {affectedDocEntries.map(([docName, pages]) => (
               <div
                 key={docName}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 border border-[#1B4D2E]/15 text-[11px] text-[#203024] font-medium shadow-2xs max-w-full"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-[#194F34]/15 text-[11px] text-on-surface font-medium max-w-full"
               >
-                <span className="font-semibold truncate max-w-[190px] xs:max-w-[220px]">
+                <span className="font-semibold truncate max-w-[190px]">
                   {docName}
                 </span>
-                <span className="text-[#8B968E]">·</span>
-                <span className="text-[#1B4D2E] font-bold shrink-0">
+                <span className="text-outline">·</span>
+                <span className="text-[#194F34] font-bold shrink-0 tabular-nums">
                   {pages.length === 1
                     ? `Page ${pages[0]}`
                     : `Pages ${pages.join(', ')}`}
@@ -136,8 +126,7 @@ export const BlankPageDetectionSection: React.FC<
             ))}
           </div>
 
-          {/* Action Row: Horizontal compact buttons */}
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
               data-testid="review-blank-pages-btn"
@@ -145,10 +134,10 @@ export const BlankPageDetectionSection: React.FC<
                 triggerHaptic('selection');
                 onReviewPages();
               }}
-              className="flex-1 h-8 px-3 rounded-xl border border-[#1B4D2E]/20 bg-white hover:bg-[#F8FAF8] text-[#1B4D2E] text-[11.5px] font-semibold flex items-center justify-center gap-1 transition-all active:scale-[0.98] shadow-2xs"
+              className="min-h-[40px] px-3 rounded-xl border border-[#194F34]/20 bg-white hover:bg-[#F8FAF8] text-[#194F34] text-[12px] font-semibold flex items-center justify-center gap-1 transition-all active:scale-[0.98]"
             >
               <span>Review</span>
-              <ChevronRight className="w-3 h-3 text-[#1B4D2E]/70" />
+              <CaretRight size={13} weight="bold" />
             </button>
 
             <button
@@ -158,27 +147,22 @@ export const BlankPageDetectionSection: React.FC<
                 triggerHaptic('buttonPress');
                 onRequestRemoval();
               }}
-              className="flex-1 h-8 px-3.5 rounded-xl bg-[#1B4D2E] hover:bg-[#153D24] text-white text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] shadow-2xs"
+              className="min-h-[40px] px-3 rounded-xl bg-[#194F34] hover:bg-[#143E29] text-white text-[12px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash size={13} weight="bold" />
               <span>Remove</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* 3. Removed Blank Pages Confirmation State */}
       {!isAnalyzing && blankCount === 0 && removedCount > 0 && (
-        <div className="w-full p-2.5 rounded-[16px] bg-[#F2F7F4] border border-[#1B4D2E]/20 flex items-center justify-between gap-2 shadow-2xs">
+        <div className="w-full p-3 rounded-2xl bg-[#F2F7F4] border border-[#194F34]/20 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-5 h-5 rounded-full bg-[#1B4D2E] text-white flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[11.5px] font-bold text-[#143B21] truncate block">
-                {removedCount} {removedCount === 1 ? 'blank page' : 'blank pages'} removed from print
-              </span>
-            </div>
+            <CheckCircle size={18} weight="fill" className="text-[#194F34] shrink-0" />
+            <span className="text-[12px] font-bold text-[#143B21] truncate tabular-nums">
+              {removedCount} {removedCount === 1 ? 'blank page' : 'blank pages'} excluded
+            </span>
           </div>
 
           <button
@@ -188,24 +172,21 @@ export const BlankPageDetectionSection: React.FC<
               triggerHaptic('selection');
               onRestoreOriginal();
             }}
-            className="h-7 px-2.5 rounded-lg bg-white border border-[#1B4D2E]/20 hover:bg-[#F8FAF8] text-[#1B4D2E] text-[10.5px] font-bold flex items-center gap-1 shrink-0 active:scale-95 transition-all shadow-2xs"
+            className="min-h-[36px] px-2.5 rounded-lg bg-white border border-[#194F34]/20 hover:bg-[#F8FAF8] text-[#194F34] text-[11px] font-bold flex items-center gap-1 shrink-0 active:scale-95 transition-all"
           >
-            <RotateCcw className="w-2.5 h-2.5" />
+            <ArrowCounterClockwise size={12} weight="bold" />
             <span>Restore</span>
           </button>
         </div>
       )}
 
-      {/* 4. No Blank Pages Found State (Compact Notification) */}
       {!isAnalyzing && hasScanned && blankCount === 0 && removedCount === 0 && (
         <div
           data-testid="no-blank-pages-confirmed"
-          className="w-full px-3 py-2 rounded-[16px] bg-[#F2F7F4] border border-[#1B4D2E]/15 flex items-center gap-2 shadow-2xs"
+          className="w-full px-3 py-2.5 rounded-2xl bg-[#F2F7F4] border border-[#194F34]/15 flex items-center gap-2"
         >
-          <div className="w-5 h-5 rounded-full bg-[#1B4D2E]/10 text-[#1B4D2E] flex items-center justify-center shrink-0">
-            <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
-          </div>
-          <span className="text-[12px] font-bold text-[#191C1A]">
+          <CheckCircle size={17} weight="fill" className="text-[#194F34] shrink-0" />
+          <span className="text-[12px] font-semibold text-on-surface">
             No blank pages detected
           </span>
         </div>

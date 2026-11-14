@@ -1,12 +1,40 @@
 import React from 'react';
-import { ScanQrCode, FolderUp, Printer, ChevronRight } from 'lucide-react';
+import { motion } from 'motion/react';
+import { QrCode, Printer } from '@phosphor-icons/react';
 import { Haptics } from '../utils/haptics';
+import { pressableTap } from '../design-system/motion';
 
 interface HowToPrintSectionProps {
   onScanClick: () => void;
   onUploadClick: () => void;
   onPrintInfoClick: () => void;
 }
+
+const FolderUploadGlyph: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      d="M3.5 6.8C3.5 5.69543 4.39543 4.8 5.5 4.8H9.25C9.82 4.8 10.36 5.06 10.72 5.51L11.88 6.95H18.5C19.6046 6.95 20.5 7.84543 20.5 8.95V17.2C20.5 18.3046 19.6046 19.2 18.5 19.2H5.5C4.39543 19.2 3.5 18.3046 3.5 17.2V6.8Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M12 15.6V10.6M12 10.6L9.75 12.85M12 10.6L14.25 12.85"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 export const HowToPrintSection: React.FC<HowToPrintSectionProps> = ({
   onScanClick,
@@ -15,108 +43,82 @@ export const HowToPrintSection: React.FC<HowToPrintSectionProps> = ({
 }) => {
   const steps = [
     {
-      step: '1',
-      title: 'Scan the QR code',
-      description: 'Point your camera at the kiosk screen.',
-      icon: ScanQrCode,
+      stepLabel: 'STEP 01',
+      title: 'Scan QR',
+      description: 'Scan the QR code displayed on the kiosk.',
+      renderIcon: () => <QrCode size={20} weight="regular" aria-hidden="true" />,
       action: onScanClick,
-      actionHint: 'Scan now',
     },
     {
-      step: '2',
-      title: 'Choose your files',
-      description: 'Select documents or photos from your phone.',
-      icon: FolderUp,
+      stepLabel: 'STEP 02',
+      title: 'Upload Files',
+      description: 'Select documents from your phone.',
+      renderIcon: () => <FolderUploadGlyph />,
       action: onUploadClick,
-      actionHint: 'Upload',
     },
     {
-      step: '3',
-      title: 'Collect your prints',
-      description: 'Pick up your printed pages at the kiosk tray.',
-      icon: Printer,
+      stepLabel: 'STEP 03',
+      title: 'Collect Prints',
+      description: 'Collect your prints from the kiosk.',
+      renderIcon: () => <Printer size={20} weight="regular" aria-hidden="true" />,
       action: onPrintInfoClick,
-      actionHint: 'Kiosk info',
     },
   ];
 
   return (
-    <section aria-label="How to Print Guide" className="mb-4 w-full">
-      <div className="rounded-2xl bg-white border border-[#1B4D2E]/12 shadow-2xs p-3.5 sm:p-4">
-        {/* Section Header */}
-        <div className="flex items-center justify-between mb-2.5 px-0.5">
-          <div>
-            <h2 className="text-[14.5px] font-bold text-[#191C1A] tracking-tight">
-              How to Print
-            </h2>
-            <p className="text-[11.5px] text-[#545D56] mt-0.5">
-              Three simple steps to print your documents
-            </p>
-          </div>
-          <span className="text-[10.5px] font-bold text-[#1B4D2E] bg-[#EDF5F0] border border-[#1B4D2E]/15 px-2.5 py-0.5 rounded-full">
-            3 Steps
-          </span>
+    <section aria-label="How to Print" className="w-full">
+      <div className="rounded-2xl bg-white border border-[#D5DDD7] shadow-[0_1px_2px_rgba(25,79,52,0.04)] p-4 sm:p-5">
+        <div className="mb-3.5">
+          <h2 className="pp-text-section-heading">How to Print</h2>
         </div>
 
-        {/* Connected Steps Timeline */}
-        <div className="relative flex flex-col gap-1.5 mt-2">
-          {/* Vertical Connecting Guide Line */}
-          <div
-            aria-hidden="true"
-            className="absolute left-[17px] top-4 bottom-4 w-0.5 bg-[#1B4D2E]/15 z-0"
-          />
-
-          {steps.map((item) => {
-            const Icon = item.icon;
+        <ol className="flex flex-col">
+          {steps.map((item, index) => {
+            const isLast = index === steps.length - 1;
             return (
-              <div
-                key={item.step}
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  Haptics.buttonPress();
-                  item.action();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
+              <li key={item.stepLabel} className="relative">
+                <motion.button
+                  type="button"
+                  whileTap={pressableTap.whileTap}
+                  transition={pressableTap.transition}
+                  onClick={() => {
                     Haptics.buttonPress();
                     item.action();
-                  }
-                }}
-                className="group relative z-10 flex items-center gap-3 p-2 rounded-xl hover:bg-[#F8FAF8] active:scale-[0.99] transition-all cursor-pointer select-none min-h-[48px]"
-              >
-                {/* Step Number Badge */}
-                <div className="w-8.5 h-8.5 rounded-full bg-[#1B4D2E] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs border-2 border-white ring-1 ring-[#1B4D2E]/20">
-                  {item.step}
-                </div>
+                  }}
+                  className="w-full text-left flex items-stretch gap-3.5 py-2 px-2 -mx-2 rounded-xl hover:bg-[#F4F8F5] transition-colors duration-150 cursor-pointer group"
+                >
+                  {/* Icon Container + Subtle Connecting Indicator */}
+                  <div className="flex flex-col items-center shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-[#EAF3ED] border border-[#194F34]/12 text-[#194F34] flex items-center justify-center shrink-0 transition-colors group-hover:bg-[#DDECE2]">
+                      {item.renderIcon()}
+                    </div>
+                    {!isLast && (
+                      <div
+                        aria-hidden="true"
+                        className="w-px flex-1 min-h-[14px] bg-[#D5DDD7] mt-1.5"
+                      />
+                    )}
+                  </div>
 
-                {/* Step Icon */}
-                <div className="w-9 h-9 rounded-xl bg-[#EDF5F0] border border-[#1B4D2E]/15 text-[#1B4D2E] flex items-center justify-center shrink-0 group-hover:bg-[#E2EFE7] group-hover:scale-105 transition-all">
-                  <Icon className="w-4.5 h-4.5 stroke-[2.2]" aria-hidden="true" />
-                </div>
-
-                {/* Step Text Information */}
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-[13px] font-bold text-[#191C1A] group-hover:text-[#1B4D2E] transition-colors truncate">
-                    {item.title}
-                  </h3>
-                  <p className="text-[11.5px] text-[#545D56] truncate mt-0.5">
-                    {item.description}
-                  </p>
-                </div>
-
-                {/* Action Arrow & Hint */}
-                <div className="flex items-center gap-1 text-[#707B72] group-hover:text-[#1B4D2E] shrink-0 text-xs font-semibold transition-colors">
-                  <span className="hidden sm:inline text-[11px] text-[#1B4D2E]/75">
-                    {item.actionHint}
-                  </span>
-                  <ChevronRight className="w-4 h-4 stroke-[2.4]" aria-hidden="true" />
-                </div>
-              </div>
+                  {/* Step Label, Title & Fully Visible Description */}
+                  <div className={`flex-1 min-w-0 ${isLast ? 'pb-0.5' : 'pb-3'}`}>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="text-[11px] font-bold tracking-[0.04em] text-[#194F34] tabular-nums">
+                        {item.stepLabel}
+                      </span>
+                      <span className="text-[14px] font-bold text-[#191C1A] leading-snug">
+                        {item.title}
+                      </span>
+                    </div>
+                    <p className="text-[13px] text-[#545D56] leading-relaxed mt-0.5">
+                      {item.description}
+                    </p>
+                  </div>
+                </motion.button>
+              </li>
             );
           })}
-        </div>
+        </ol>
       </div>
     </section>
   );

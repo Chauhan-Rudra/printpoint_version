@@ -169,10 +169,11 @@ export const SUPPORTED_FILE_EXTENSIONS = [
   '.jpeg',
   '.png',
   '.txt',
+  '.csv',
 ] as const;
 
 export const NATIVE_FILE_ACCEPT_ATTR =
-  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png,text/plain';
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png,text/plain,text/csv,application/csv';
 
 export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -183,7 +184,7 @@ export interface FileValidationResult {
 
 /**
  * Validates that a selected file has a supported extension
- * (PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG, TXT)
+ * (PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG, TXT, CSV)
  * and a valid file size (> 0 bytes and <= 100 MB).
  */
 export function validateSelectedFile(
@@ -199,7 +200,7 @@ export function validateSelectedFile(
   if (!isSupportedExtension) {
     return {
       valid: false,
-      error: `Unsupported file "${trimmed}". Allowed formats: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG, TXT.`,
+      error: `Unsupported file "${trimmed}". Allowed formats: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG, TXT, CSV.`,
     };
   }
 
@@ -218,6 +219,82 @@ export function validateSelectedFile(
   }
 
   return { valid: true };
+}
+
+export function getFileFingerprint(
+  file: { name: string; size: number; lastModified?: number }
+): string {
+  const normalizedName = file.name.trim().toLowerCase();
+  const mod = typeof file.lastModified === 'number' && file.lastModified > 0
+    ? file.lastModified
+    : 0;
+  return `${normalizedName}::${file.size}::${mod}`;
+}
+
+export interface BatchFileValidationOutcome {
+  validFiles: File[];
+  errors: string[];
+  duplicateFiles: string[];
+}
+
+/**
+ * Validates incoming files against format/size rules and prevents duplicates
+ * both within the newly selected batch and against already queued documents.
+ */
+export function validateAndDeduplicateFiles(
+  incomingFiles: File[],
+  existingDocuments: Pick<UploadedPrintDocument, 'name' | 'sizeBytes' | 'lastModified' | 'rawFile'>[] = []
+): BatchFileValidationOutcome {
+  const seenKeys = new Set<string>();
+  for (const doc of existingDocuments) {
+    const mod = doc.lastModified ?? doc.rawFile?.lastModified ?? 0;
+    seenKeys.add(
+      getFileFingerprint({
+        name: doc.name,
+        size: doc.sizeBytes,
+        lastModified: mod,
+      })
+    );
+  }
+
+  const validFiles: File[] = [];
+  const errors: string[] = [];
+  const duplicateFiles: string[] = [];
+
+  for (const file of incomingFiles) {
+    const check = validateSelectedFile(file.name, file.size);
+    if (!check.valid) {
+      if (check.error) errors.push(check.error);
+      continue;
+    }
+
+    const key = getFileFingerprint(file);
+    if (seenKeys.has(key)) {
+      duplicateFiles.push(file.name);
+      errors.push(`"${file.name}" is already selected.`);
+      continue;
+    }
+
+    seenKeys.add(key);
+    validFiles.push(file);
+  }
+
+  return { validFiles, errors, duplicateFiles };
+}
+
+/**
+ * Builds a unique deterministic session-scoped storage path for a kiosk upload.
+ */
+export function buildKioskStoragePath(
+  stationId: string,
+  sessionToken: string | undefined,
+  docId: string,
+  fileName: string
+): string {
+  const safeStation = stationId.replace(/[^a-zA-Z0-9_-]/g, '') || 'kiosk-default';
+  const safeSession = (sessionToken || 'local-session').replace(/[^a-zA-Z0-9._-]/g, '');
+  const safeFile = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'document';
+  return `kiosks/${safeStation}/sessions/${safeSession}/${docId}_${safeFile}`;
 }
 
 /**

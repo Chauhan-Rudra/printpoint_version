@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && !id.matches('.*[/\\\\].*');
+    }
+
+    function validUserUpdate(uid) {
+      let data = request.resource.data;
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'joinedDate']) &&
+        data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'phone',
+          'photoURL',
+          'language',
+          'notificationsEnabled',
+          'role',
+          'joinedDate',
+          'updatedAt'
+        ]) &&
+        data.uid == uid &&
+        data.role == 'user' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 32)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1024)) &&
+        (!('language' in data) || data.language in ['English', 'ગુજરાતી', 'हिन्दी']) &&
+        (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
+        data.joinedDate is string && data.joinedDate.size() <= 32 &&
+        (!('updatedAt' in data) || data.updatedAt is int);
+    }
+
+    // Health check document (signed-in connectivity verification; never open-read)
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // User profile: owner can read/create/update safe profile fields; never self-escalate role
+    match /users/{uid} {
+      allow get: if isOwner(uid) && isValidId(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) && isValidId(uid) && validUserUpdate(uid);
+      allow update: if isOwner(uid) && isValidId(uid) &&
+        validUserUpdate(uid) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.joinedDate == resource.data.joinedDate;
+      allow delete: if false;
+    }
+
+    // Authoritative wallet & ledger: owner read-only; all writes strictly server-side
+    match /wallets/{uid} {
+      allow get: if isOwner(uid) && isValidId(uid);
+      allow list: if false;
+      allow write: if false;
+
+      match /transactions/{txId} {
+        allow read: if isOwner(uid) && isValidId(uid) && isValidId(txId);
+        allow write: if false;
+      }
+    }
+
+    // Kiosk station metadata & rate cards: signed-in read-only; server-managed
+    match /kioskStations/{stationId} {
+      allow read: if isSignedIn() && isValidId(stationId);
+      allow write: if false;
+    }
+
+    // Kiosk QR pairing sessions: bound user read-only; server-managed
+    match /kioskSessions/{token} {
+      allow get: if isSignedIn() && isValidId(token) && resource.data.boundUid == request.auth.uid;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Uploaded document metadata: owner read-only; server-managed
+    match /printDocuments/{docId} {
+      allow read: if isSignedIn() && isValidId(docId) && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Print orders: owner read-only (live queue/PIN/status updates); server-managed
+    match /printOrders/{orderId} {
+      allow read: if isSignedIn() && isValidId(orderId) && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Razorpay payment orders: owner read-only; server-managed
+    match /paymentOrders/{paymentOrderId} {
+      allow get: if isSignedIn() && isValidId(paymentOrderId) && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow write: if false;
+    }
+  }
+}

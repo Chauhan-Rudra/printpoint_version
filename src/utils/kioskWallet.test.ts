@@ -4,14 +4,14 @@ import {
   getKioskWalletBalance,
   addKioskWalletFunds,
   deductKioskWalletFunds,
+  refundKioskWalletFunds,
   formatWalletBalanceInr,
 } from './kioskWallet';
 
 describe('Kiosk Wallet Utilities', () => {
-  it('initializes with default balance of ₹100 or current balance', () => {
+  it('initializes with zero balance when empty (no free money seed)', () => {
     const bal = getKioskWalletBalance();
-    assert.strictEqual(typeof bal, 'number');
-    assert.ok(bal >= 0, 'Balance must be non-negative');
+    assert.strictEqual(bal, 0);
   });
 
   it('correctly adds funds to the wallet', () => {
@@ -26,6 +26,13 @@ describe('Kiosk Wallet Utilities', () => {
     const result = deductKioskWalletFunds(25, 'Test Print Deduction');
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.newBalance, Number((before - 25).toFixed(2)));
+  });
+
+  it('correctly refunds funds to the wallet', () => {
+    const before = getKioskWalletBalance();
+    const result = refundKioskWalletFunds(15, 'Refund · PP-1001');
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.newBalance, Number((before + 15).toFixed(2)));
   });
 
   it('rejects deduction when amount exceeds current balance', () => {
